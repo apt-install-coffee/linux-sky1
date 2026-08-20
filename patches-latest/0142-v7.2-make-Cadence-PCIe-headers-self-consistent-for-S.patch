@@ -1,0 +1,84 @@
+From 42abd0325a99d4a3172e2cade32e3249d93d0adf Mon Sep 17 00:00:00 2001
+From: Jordan McCallum <apt-install-coffee@proton.me>
+Date: Thu, 20 Aug 2026 16:55:42 +1000
+Subject: [PATCH 142/145] v7.2: make Cadence PCIe headers self-consistent for
+ Sky1 driver
+
+v7.2 advanced the Cadence PCIe core (HPA API) independently of the fork.
+The Sky1 PCIe driver (pci-sky1.c) is built against the fork's Cadence
+register layout, so keep the fork's pcie-cadence.h/pcie-cadence-host.c
+versions consistently (the other Cadence users - j721e/sg2042/ep/plat -
+are disabled in the Sky1 config) rather than a mix of both.
+---
+ .../controller/cadence/pcie-cadence-host.c    |  9 -------
+ drivers/pci/controller/cadence/pcie-cadence.h | 25 -------------------
+ 2 files changed, 34 deletions(-)
+
+diff --git a/drivers/pci/controller/cadence/pcie-cadence-host.c b/drivers/pci/controller/cadence/pcie-cadence-host.c
+index b1f57422cd0a..438c0bc882dc 100644
+--- a/drivers/pci/controller/cadence/pcie-cadence-host.c
++++ b/drivers/pci/controller/cadence/pcie-cadence-host.c
+@@ -251,13 +251,6 @@ static int cdns_pcie_host_init_root_port(struct cdns_pcie_rc *rc)
+ 	cdns_pcie_rp_writeb(pcie, PCI_CLASS_PROG, 0);
+ 	cdns_pcie_rp_writew(pcie, PCI_CLASS_DEVICE, PCI_CLASS_BRIDGE_PCI);
+ 
+-	value = cdns_pcie_rp_readl(pcie, CDNS_PCIE_RP_CAP_OFFSET + PCI_EXP_LNKCAP);
+-	if (rc->quirk_broken_aspm_l0s)
+-		value &= ~PCI_EXP_LNKCAP_ASPM_L0S;
+-	if (rc->quirk_broken_aspm_l1)
+-		value &= ~PCI_EXP_LNKCAP_ASPM_L1;
+-	cdns_pcie_rp_writel(pcie, CDNS_PCIE_RP_CAP_OFFSET + PCI_EXP_LNKCAP, value);
+-
+ 	return 0;
+ }
+ 
+@@ -748,10 +741,8 @@ void cdns_pcie_host_disable(struct cdns_pcie_rc *rc)
+ 	struct pci_host_bridge *bridge;
+ 
+ 	bridge = pci_host_bridge_from_priv(rc);
+-	pci_lock_rescan_remove();
+ 	pci_stop_root_bus(bridge->bus);
+ 	pci_remove_root_bus(bridge->bus);
+-	pci_unlock_rescan_remove();
+ 
+ 	cdns_pcie_host_deinit(rc);
+ 	cdns_pcie_host_link_disable(rc);
+diff --git a/drivers/pci/controller/cadence/pcie-cadence.h b/drivers/pci/controller/cadence/pcie-cadence.h
+index c087123dfb06..5da4c36b25aa 100644
+--- a/drivers/pci/controller/cadence/pcie-cadence.h
++++ b/drivers/pci/controller/cadence/pcie-cadence.h
+@@ -457,31 +457,6 @@ static inline void cdns_pcie_write_sz(void __iomem *addr, int size, u32 value)
+ 	writel(val, aligned_addr);
+ }
+ 
+-static inline int cdns_pcie_read_cfg_byte(struct cdns_pcie *pcie, int where,
+-					  u8 *val)
+-{
+-	void __iomem *addr = pcie->reg_base + where;
+-
+-	*val = cdns_pcie_read_sz(addr, 0x1);
+-	return PCIBIOS_SUCCESSFUL;
+-}
+-
+-static inline int cdns_pcie_read_cfg_word(struct cdns_pcie *pcie, int where,
+-					  u16 *val)
+-{
+-	void __iomem *addr = pcie->reg_base + where;
+-
+-	*val = cdns_pcie_read_sz(addr, 0x2);
+-	return PCIBIOS_SUCCESSFUL;
+-}
+-
+-static inline int cdns_pcie_read_cfg_dword(struct cdns_pcie *pcie, int where,
+-					   u32 *val)
+-{
+-	*val = cdns_pcie_readl(pcie, where);
+-	return PCIBIOS_SUCCESSFUL;
+-}
+-
+ /* Root Port register access */
+ static inline void cdns_pcie_rp_writeb(struct cdns_pcie *pcie,
+ 				       u32 reg, u8 value)
+-- 
+2.54.0
+

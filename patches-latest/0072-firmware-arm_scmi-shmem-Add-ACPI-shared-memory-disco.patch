@@ -1,7 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From dac1a8cd2c3beed97b01ea657077860dd347154b Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Fri, 6 Feb 2026 17:46:12 +1100
-Subject: [PATCH] firmware: arm_scmi: shmem: Add ACPI shared memory discovery
+Subject: [PATCH 072/145] firmware: arm_scmi: shmem: Add ACPI shared memory
+ discovery
 
 shmem_setup_iomap() uses of_parse_phandle() to find shared memory nodes,
 which only works with Device Tree. In ACPI mode, the SCMI device's _DSD
@@ -22,7 +23,7 @@ development.
  1 file changed, 84 insertions(+), 5 deletions(-)
 
 diff --git a/drivers/firmware/arm_scmi/shmem.c b/drivers/firmware/arm_scmi/shmem.c
-index 4f1b2b65b1950..da61234b77fd4 100644
+index e1d50817cfb1..60b7ec84a983 100644
 --- a/drivers/firmware/arm_scmi/shmem.c
 +++ b/drivers/firmware/arm_scmi/shmem.c
 @@ -5,11 +5,13 @@
@@ -120,7 +121,7 @@ index 4f1b2b65b1950..da61234b77fd4 100644
  static void __iomem *shmem_setup_iomap(struct scmi_chan_info *cinfo,
  				       struct device *dev, bool tx,
  				       struct resource *res,
-@@ -205,14 +281,17 @@ static void __iomem *shmem_setup_iomap(struct scmi_chan_info *cinfo,
+@@ -204,14 +280,17 @@ static void __iomem *shmem_setup_iomap(struct scmi_chan_info *cinfo,
  	void __iomem *addr;
  	u32 reg_io_width;
  
@@ -143,3 +144,6 @@ index 4f1b2b65b1950..da61234b77fd4 100644
  
  	if (!of_device_is_compatible(shmem, "arm,scmi-shmem"))
  		return IOMEM_ERR_PTR(-ENXIO);
+-- 
+2.54.0
+

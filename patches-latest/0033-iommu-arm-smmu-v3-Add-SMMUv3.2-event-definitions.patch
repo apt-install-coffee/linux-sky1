@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 2a72b401656e1a0ce6304d7396de46bf82975abe Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Wed, 4 Feb 2026 19:40:29 +1100
-Subject: [PATCH] iommu/arm-smmu-v3: Add SMMUv3.2 event definitions
+Subject: [PATCH 033/145] iommu/arm-smmu-v3: Add SMMUv3.2 event definitions
 
 Add missing event IDs from the ARM SMMUv3.2 specification:
 
@@ -21,10 +21,10 @@ The CIX Sky1 SoC uses ARM MMU-700 implementing SMMUv3.2+ features
  2 files changed, 5 insertions(+)
 
 diff --git a/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c b/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c
-index 693d237892e98..95b85a2ced6b9 100644
+index 72144c3e9fdf..7e2134e5e451 100644
 --- a/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c
 +++ b/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c
-@@ -88,7 +88,9 @@ static const char * const event_str[] = {
+@@ -89,7 +89,9 @@ static const char * const event_str[] = {
  	[EVT_ID_BAD_STREAMID_CONFIG] = "C_BAD_STREAMID",
  	[EVT_ID_STE_FETCH_FAULT] = "F_STE_FETCH",
  	[EVT_ID_BAD_STE_CONFIG] = "C_BAD_STE",
@@ -34,7 +34,7 @@ index 693d237892e98..95b85a2ced6b9 100644
  	[EVT_ID_BAD_SUBSTREAMID_CONFIG] = "C_BAD_SUBSTREAMID",
  	[EVT_ID_CD_FETCH_FAULT] = "F_CD_FETCH",
  	[EVT_ID_BAD_CD_CONFIG] = "C_BAD_CD",
-@@ -1825,6 +1827,7 @@ static int arm_smmu_handle_event(struct arm_smmu_device *smmu, u64 *evt,
+@@ -2038,6 +2040,7 @@ static int arm_smmu_handle_event(struct arm_smmu_device *smmu, u64 *evt,
  	switch (event->id) {
  	case EVT_ID_BAD_STE_CONFIG:
  	case EVT_ID_STREAM_DISABLED_FAULT:
@@ -43,10 +43,10 @@ index 693d237892e98..95b85a2ced6b9 100644
  	case EVT_ID_BAD_CD_CONFIG:
  	case EVT_ID_TRANSLATION_FAULT:
 diff --git a/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.h b/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.h
-index ae23aacc38402..42bca64aab331 100644
+index c909c9a88538..4abefec37938 100644
 --- a/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.h
 +++ b/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.h
-@@ -458,7 +458,9 @@ static inline unsigned int arm_smmu_cdtab_l2_idx(unsigned int ssid)
+@@ -608,7 +608,9 @@ arm_smmu_make_cmd_tlbi(enum arm_smmu_cmdq_opcode op, u16 asid, u16 vmid)
  #define EVT_ID_BAD_STREAMID_CONFIG	0x02
  #define EVT_ID_STE_FETCH_FAULT		0x03
  #define EVT_ID_BAD_STE_CONFIG		0x04
@@ -56,3 +56,6 @@ index ae23aacc38402..42bca64aab331 100644
  #define EVT_ID_BAD_SUBSTREAMID_CONFIG	0x08
  #define EVT_ID_CD_FETCH_FAULT		0x09
  #define EVT_ID_BAD_CD_CONFIG		0x0a
+-- 
+2.54.0
+

@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From e39a2857985b8555d3107ad1f3572a45c1058b2c Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Fri, 6 Feb 2026 02:06:31 +1100
-Subject: [PATCH] clocksource: Add CIX Sky1 GPT timer driver
+Subject: [PATCH 063/145] clocksource: Add CIX Sky1 GPT timer driver
 
 Add driver for the CIX Sky1 General Purpose Timer which provides both
 clocksource and clock event functionality.
@@ -25,10 +25,10 @@ event device for scheduling timer interrupts.
  create mode 100644 drivers/clocksource/timer-sky1-gpt.c
 
 diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
-index aa59e5b133510..05e47821e97f1 100644
+index d9c76dd443f8..154772f14b80 100644
 --- a/drivers/clocksource/Kconfig
 +++ b/drivers/clocksource/Kconfig
-@@ -512,6 +512,15 @@ config SPRD_TIMER
+@@ -513,6 +513,15 @@ config SPRD_TIMER
  	help
  	  Enables support for the Spreadtrum timer driver.
  
@@ -45,7 +45,7 @@ index aa59e5b133510..05e47821e97f1 100644
  	bool
  
 diff --git a/drivers/clocksource/Makefile b/drivers/clocksource/Makefile
-index b46376af6b490..c1f541576e6b7 100644
+index b46376af6b49..c1f541576e6b 100644
 --- a/drivers/clocksource/Makefile
 +++ b/drivers/clocksource/Makefile
 @@ -58,6 +58,7 @@ obj-$(CONFIG_CLKSRC_TI_32K)	+= timer-ti-32k.o
@@ -58,7 +58,7 @@ index b46376af6b490..c1f541576e6b7 100644
  obj-$(CONFIG_REALTEK_OTTO_TIMER)	+= timer-rtl-otto.o
 diff --git a/drivers/clocksource/timer-sky1-gpt.c b/drivers/clocksource/timer-sky1-gpt.c
 new file mode 100644
-index 0000000000000..775a981ed8c77
+index 000000000000..775a981ed8c7
 --- /dev/null
 +++ b/drivers/clocksource/timer-sky1-gpt.c
 @@ -0,0 +1,293 @@
@@ -355,3 +355,6 @@ index 0000000000000..775a981ed8c77
 +MODULE_AUTHOR("Cix Technology Group Co., Ltd.");
 +MODULE_DESCRIPTION("CIX Sky1 General Purpose Timer");
 +MODULE_LICENSE("GPL");
+-- 
+2.54.0
+

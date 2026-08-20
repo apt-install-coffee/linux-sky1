@@ -1,7 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From fddb61de1bfd926eb2e62fecd10f6bbbecae6613 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Sun, 1 Feb 2026 01:24:42 +1100
-Subject: [PATCH] arm64: cix: Add Sky1 thermal, PWM, watchdog, and misc drivers
+Subject: [PATCH 012/145] arm64: cix: Add Sky1 thermal, PWM, watchdog, and misc
+ drivers
 
 Add Sky1 PWM controller driver, watchdog timer driver, and CPU IPA
 thermal driver. Add topology_update_freq_ref() so schedutil sees
@@ -12,7 +13,7 @@ type for GPIO controllers without edge trigger support. Include
 kernel build-install convenience script.
 ---
  drivers/base/arch_topology.c          |  20 ++
- drivers/cpufreq/cpufreq.c             |   4 +
+ drivers/cpufreq/cpufreq.c             |  10 +-
  drivers/input/keyboard/gpio_keys.c    |  16 +-
  drivers/pmdomain/arm/scmi_pm_domain.c |  41 ++-
  drivers/pwm/Kconfig                   |  11 +-
@@ -22,12 +23,12 @@ kernel build-install convenience script.
  drivers/thermal/Makefile              |   1 +
  drivers/thermal/cix/Makefile          |   2 +
  drivers/thermal/cix/cix_cpu_ipa.c     | 131 ++++++++
- drivers/watchdog/Kconfig              |  10 +
+ drivers/watchdog/Kconfig              |  13 +-
  drivers/watchdog/Makefile             |   1 +
  drivers/watchdog/sky1_wdt.c           | 431 ++++++++++++++++++++++++++
  include/linux/arch_topology.h         |  10 +-
  scripts/build-install.sh              |  72 +++++
- 16 files changed, 1052 insertions(+), 4 deletions(-)
+ 16 files changed, 1052 insertions(+), 13 deletions(-)
  create mode 100644 drivers/pwm/pwm-sky1.c
  create mode 100644 drivers/thermal/cix/Makefile
  create mode 100644 drivers/thermal/cix/cix_cpu_ipa.c
@@ -35,10 +36,10 @@ kernel build-install convenience script.
  create mode 100755 scripts/build-install.sh
 
 diff --git a/drivers/base/arch_topology.c b/drivers/base/arch_topology.c
-index 84ec92bff642c..090184a55aea7 100644
+index 8c5e47c28d9a..ee74e22dddc8 100644
 --- a/drivers/base/arch_topology.c
 +++ b/drivers/base/arch_topology.c
-@@ -415,6 +415,26 @@ init_cpu_capacity_callback(struct notifier_block *nb,
+@@ -422,6 +422,26 @@ init_cpu_capacity_callback(struct notifier_block *nb,
  	return 0;
  }
  
@@ -66,7 +67,7 @@ index 84ec92bff642c..090184a55aea7 100644
  	.notifier_call = init_cpu_capacity_callback,
  };
 diff --git a/drivers/cpufreq/cpufreq.c b/drivers/cpufreq/cpufreq.c
-index 4472bb1ec83c7..cc7da1ba0df09 100644
+index b898b6544069..a28aeea46006 100644
 --- a/drivers/cpufreq/cpufreq.c
 +++ b/drivers/cpufreq/cpufreq.c
 @@ -14,6 +14,7 @@
@@ -77,18 +78,24 @@ index 4472bb1ec83c7..cc7da1ba0df09 100644
  #include <linux/cpu.h>
  #include <linux/cpufreq.h>
  #include <linux/cpu_cooling.h>
-@@ -2791,6 +2792,9 @@ int cpufreq_boost_set_sw(struct cpufreq_policy *policy, int state)
- 		return ret;
- 	}
+@@ -2802,7 +2803,14 @@ int cpufreq_boost_set_sw(struct cpufreq_policy *policy, int state)
+ 	if (ret)
+ 		pr_err("%s: Policy frequency update failed\n", __func__);
  
+-	return ret;
 +	/* Update capacity_freq_ref so schedutil uses the new max frequency */
 +	topology_update_freq_ref(policy);
 +
- 	ret = freq_qos_update_request(policy->max_freq_req, policy->max);
- 	if (ret < 0)
- 		return ret;
++	ret = freq_qos_update_request(policy->max_freq_req, policy->max);
++	if (ret < 0)
++		return ret;
++
++	return 0;
+ }
+ EXPORT_SYMBOL_GPL(cpufreq_boost_set_sw);
+ 
 diff --git a/drivers/input/keyboard/gpio_keys.c b/drivers/input/keyboard/gpio_keys.c
-index f9db86da0818b..c766201b59393 100644
+index e19617485679..ba031efc7267 100644
 --- a/drivers/input/keyboard/gpio_keys.c
 +++ b/drivers/input/keyboard/gpio_keys.c
 @@ -596,7 +596,21 @@ static int gpio_keys_setup_key(struct platform_device *pdev,
@@ -115,7 +122,7 @@ index f9db86da0818b..c766201b59393 100644
  		switch (button->wakeup_event_action) {
  		case EV_ACT_ASSERTED:
 diff --git a/drivers/pmdomain/arm/scmi_pm_domain.c b/drivers/pmdomain/arm/scmi_pm_domain.c
-index b5e2ffd5ea64c..fcce7b7a1bccb 100644
+index 3d73aef21d2f..ee7443a5afd1 100644
 --- a/drivers/pmdomain/arm/scmi_pm_domain.c
 +++ b/drivers/pmdomain/arm/scmi_pm_domain.c
 @@ -24,9 +24,35 @@ struct scmi_pm_domain {
@@ -155,7 +162,7 @@ index b5e2ffd5ea64c..fcce7b7a1bccb 100644
  }
  
  static int scmi_pd_power_on(struct generic_pm_domain *domain)
-@@ -151,7 +177,20 @@ static struct scmi_driver scmi_power_domain_driver = {
+@@ -165,7 +191,20 @@ static struct scmi_driver scmi_power_domain_driver = {
  	.remove = scmi_pm_domain_remove,
  	.id_table = scmi_id_table,
  };
@@ -177,10 +184,10 @@ index b5e2ffd5ea64c..fcce7b7a1bccb 100644
  MODULE_AUTHOR("Sudeep Holla <sudeep.holla@arm.com>");
  MODULE_DESCRIPTION("ARM SCMI power domain driver");
 diff --git a/drivers/pwm/Kconfig b/drivers/pwm/Kconfig
-index 6f3147518376a..1176d4bc2b7d9 100644
+index e8886a9b64d9..45592c34bfb0 100644
 --- a/drivers/pwm/Kconfig
 +++ b/drivers/pwm/Kconfig
-@@ -842,7 +842,16 @@ config PWM_XILINX
+@@ -854,7 +854,16 @@ config PWM_XILINX
  	  To compile this driver as a module, choose M here: the module
  	  will be called pwm-xilinx.
  
@@ -199,17 +206,17 @@ index 6f3147518376a..1176d4bc2b7d9 100644
  	depends on RUST
  	help
 diff --git a/drivers/pwm/Makefile b/drivers/pwm/Makefile
-index 0dc0d2b69025d..3ef9cf1995274 100644
+index 5630a521a7cf..20a93ab688a1 100644
 --- a/drivers/pwm/Makefile
 +++ b/drivers/pwm/Makefile
-@@ -77,3 +77,4 @@ obj-$(CONFIG_PWM_TWL_LED)	+= pwm-twl-led.o
+@@ -78,3 +78,4 @@ obj-$(CONFIG_PWM_TWL_LED)	+= pwm-twl-led.o
  obj-$(CONFIG_PWM_VISCONTI)	+= pwm-visconti.o
  obj-$(CONFIG_PWM_VT8500)	+= pwm-vt8500.o
  obj-$(CONFIG_PWM_XILINX)	+= pwm-xilinx.o
 +obj-$(CONFIG_PWM_SKY1) += pwm-sky1.o
 diff --git a/drivers/pwm/pwm-sky1.c b/drivers/pwm/pwm-sky1.c
 new file mode 100644
-index 0000000000000..3b55c4000359f
+index 000000000000..3b55c4000359
 --- /dev/null
 +++ b/drivers/pwm/pwm-sky1.c
 @@ -0,0 +1,291 @@
@@ -505,10 +512,10 @@ index 0000000000000..3b55c4000359f
 +MODULE_AUTHOR("Jerry Zhu <jerry.zhu@cixtech.com>");
 +MODULE_DESCRIPTION("CIX Sky1 PWM driver");
 diff --git a/drivers/thermal/Kconfig b/drivers/thermal/Kconfig
-index b10080d618604..76a6ccdec5b31 100644
+index 810eeccedfba..92472c89b333 100644
 --- a/drivers/thermal/Kconfig
 +++ b/drivers/thermal/Kconfig
-@@ -527,4 +527,18 @@ config LOONGSON2_THERMAL
+@@ -530,4 +530,18 @@ config LOONGSON2_THERMAL
  	  is higher than the high temperature threshold or lower than the low
  	  temperature threshold, the interrupt will occur.
  
@@ -528,10 +535,10 @@ index b10080d618604..76a6ccdec5b31 100644
 +
  endif
 diff --git a/drivers/thermal/Makefile b/drivers/thermal/Makefile
-index bb21e7ea7fc6b..ad59bbf3403b5 100644
+index 3b249195c088..32e4fbf693f6 100644
 --- a/drivers/thermal/Makefile
 +++ b/drivers/thermal/Makefile
-@@ -68,4 +68,5 @@ obj-$(CONFIG_AMLOGIC_THERMAL)     += amlogic_thermal.o
+@@ -69,4 +69,5 @@ obj-y				+= spacemit/
  obj-$(CONFIG_SPRD_THERMAL)	+= sprd_thermal.o
  obj-$(CONFIG_KHADAS_MCU_FAN_THERMAL)	+= khadas_mcu_fan.o
  obj-$(CONFIG_LOONGSON2_THERMAL)	+= loongson2_thermal.o
@@ -539,7 +546,7 @@ index bb21e7ea7fc6b..ad59bbf3403b5 100644
  obj-$(CONFIG_THERMAL_CORE_TESTING)	+= testing/
 diff --git a/drivers/thermal/cix/Makefile b/drivers/thermal/cix/Makefile
 new file mode 100644
-index 0000000000000..4f6d776b4c536
+index 000000000000..4f6d776b4c53
 --- /dev/null
 +++ b/drivers/thermal/cix/Makefile
 @@ -0,0 +1,2 @@
@@ -547,7 +554,7 @@ index 0000000000000..4f6d776b4c536
 +obj-$(CONFIG_CIX_CPU_IPA)	+= cix_cpu_ipa.o
 diff --git a/drivers/thermal/cix/cix_cpu_ipa.c b/drivers/thermal/cix/cix_cpu_ipa.c
 new file mode 100644
-index 0000000000000..77d656826e071
+index 000000000000..77d656826e07
 --- /dev/null
 +++ b/drivers/thermal/cix/cix_cpu_ipa.c
 @@ -0,0 +1,131 @@
@@ -683,36 +690,44 @@ index 0000000000000..77d656826e071
 +MODULE_DESCRIPTION("CIX CPU IPA Power Monitoring Driver");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/watchdog/Kconfig b/drivers/watchdog/Kconfig
-index d3b9df7d466b0..388b977f4404e 100644
+index 08cb8612d41f..9444dc013a04 100644
 --- a/drivers/watchdog/Kconfig
 +++ b/drivers/watchdog/Kconfig
-@@ -2362,4 +2362,14 @@ config KEEMBAY_WATCHDOG
+@@ -2339,17 +2339,14 @@ config KEEMBAY_WATCHDOG
  	  To compile this driver as a module, choose M here: the
  	  module will be called keembay_wdt.
  
+-config GUNYAH_WATCHDOG
+-	tristate "Qualcomm Gunyah Watchdog"
+-	depends on ARCH_QCOM || COMPILE_TEST
+-	depends on HAVE_ARM_SMCCC
 +config SKY1_WATCHDOG
 +	tristate "CIX Sky1 SoC watchdog"
 +	depends on ARCH_CIX || (ARM64 && COMPILE_TEST)
-+	select WATCHDOG_CORE
-+	help
+ 	select WATCHDOG_CORE
+ 	help
+-	  Say Y here to include support for watchdog timer provided by the
+-	  Gunyah hypervisor. The driver uses ARM SMC Calling Convention (SMCCC)
+-	  to interact with Gunyah Watchdog.
 +	  This option enables support for the watchdog timer on CIX Sky1 SoCs.
-+
-+	  To compile this driver as a module, choose M here: the
+ 
+ 	  To compile this driver as a module, choose M here: the
+-	  module will be called gunyah_wdt.
 +	  module will be called sky1_wdt.
-+
+ 
  endif # WATCHDOG
 diff --git a/drivers/watchdog/Makefile b/drivers/watchdog/Makefile
-index ba52099b12539..746b21f41a4a0 100644
+index bc1d52220f22..8d6790b7f627 100644
 --- a/drivers/watchdog/Makefile
 +++ b/drivers/watchdog/Makefile
-@@ -244,3 +244,4 @@ obj-$(CONFIG_MENZ069_WATCHDOG) += menz69_wdt.o
+@@ -241,3 +241,4 @@ obj-$(CONFIG_MENZ069_WATCHDOG) += menz69_wdt.o
  obj-$(CONFIG_RAVE_SP_WATCHDOG) += rave-sp-wdt.o
  obj-$(CONFIG_STPMIC1_WATCHDOG) += stpmic1_wdt.o
  obj-$(CONFIG_SL28CPLD_WATCHDOG) += sl28cpld_wdt.o
 +obj-$(CONFIG_SKY1_WATCHDOG) += sky1_wdt.o
 diff --git a/drivers/watchdog/sky1_wdt.c b/drivers/watchdog/sky1_wdt.c
 new file mode 100644
-index 0000000000000..0c40e2b5c787c
+index 000000000000..0c40e2b5c787
 --- /dev/null
 +++ b/drivers/watchdog/sky1_wdt.c
 @@ -0,0 +1,431 @@
@@ -1148,7 +1163,7 @@ index 0000000000000..0c40e2b5c787c
 +MODULE_LICENSE("GPL v2");
 +MODULE_ALIAS("platform:" DRIVER_NAME);
 diff --git a/include/linux/arch_topology.h b/include/linux/arch_topology.h
-index ebd7f8935f969..ead7f7e3705a4 100644
+index ebd7f8935f96..ead7f7e3705a 100644
 --- a/include/linux/arch_topology.h
 +++ b/include/linux/arch_topology.h
 @@ -105,10 +105,18 @@ static inline bool topology_core_has_smt(int cpu)
@@ -1173,7 +1188,7 @@ index ebd7f8935f969..ead7f7e3705a4 100644
  #endif /* _LINUX_ARCH_TOPOLOGY_H_ */
 diff --git a/scripts/build-install.sh b/scripts/build-install.sh
 new file mode 100755
-index 0000000000000..8237cf03c0991
+index 000000000000..8237cf03c099
 --- /dev/null
 +++ b/scripts/build-install.sh
 @@ -0,0 +1,72 @@
@@ -1249,3 +1264,6 @@ index 0000000000000..8237cf03c0991
 +echo
 +echo "Verified: EFI files match build artifacts."
 +echo "Ready to reboot. Use menu entry 3 (dev) for latest build."
+-- 
+2.54.0
+

@@ -1,8 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 619b230897743c439f7be00884c79607579e281a Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Mon, 9 Feb 2026 17:09:42 +1100
-Subject: [PATCH] pmdomain: add fwnode-based genpd provider for ACPI power
- domain consumers
+Subject: [PATCH 101/145] pmdomain: add fwnode-based genpd provider for ACPI
+ power domain consumers
 
 The generic power domain (genpd) subsystem only supports OF-based
 provider registration.  Under ACPI, consumers that reference power
@@ -33,7 +33,7 @@ Key changes:
  3 files changed, 320 insertions(+), 20 deletions(-)
 
 diff --git a/drivers/pmdomain/arm/scmi_perf_domain.c b/drivers/pmdomain/arm/scmi_perf_domain.c
-index 9b93a4ca948a5..db4e49bb2f2cf 100644
+index 6033fc44ed69..c06a93feb5e8 100644
 --- a/drivers/pmdomain/arm/scmi_perf_domain.c
 +++ b/drivers/pmdomain/arm/scmi_perf_domain.c
 @@ -5,11 +5,13 @@
@@ -159,7 +159,7 @@ index 9b93a4ca948a5..db4e49bb2f2cf 100644
  	for (i = 0; i < scmi_pd_data->num_domains; i++)
  		pm_genpd_remove(scmi_pd_data->domains[i]);
 diff --git a/drivers/pmdomain/core.c b/drivers/pmdomain/core.c
-index 004d8a94101cb..541f818211074 100644
+index df1823e53af8..9e932e4beb59 100644
 --- a/drivers/pmdomain/core.c
 +++ b/drivers/pmdomain/core.c
 @@ -23,6 +23,7 @@
@@ -170,7 +170,7 @@ index 004d8a94101cb..541f818211074 100644
  
  /* Provides a unique ID for each genpd device */
  static DEFINE_IDA(genpd_ida);
-@@ -2592,6 +2593,21 @@ static DEFINE_MUTEX(of_genpd_mutex);
+@@ -2597,6 +2598,21 @@ static struct device *genpd_provider_bus;
  /* Used to prevent registering devices before the bus. */
  static bool genpd_bus_registered;
  
@@ -192,7 +192,7 @@ index 004d8a94101cb..541f818211074 100644
  /**
   * genpd_xlate_simple() - Xlate function for direct node-domain mapping
   * @genpdspec: OF phandle args to map into a PM domain
-@@ -2909,6 +2925,100 @@ void of_genpd_del_provider(struct device_node *np)
+@@ -2916,6 +2932,100 @@ void of_genpd_del_provider(struct device_node *np)
  }
  EXPORT_SYMBOL_GPL(of_genpd_del_provider);
  
@@ -293,7 +293,7 @@ index 004d8a94101cb..541f818211074 100644
  /**
   * genpd_get_from_provider() - Look-up PM domain
   * @genpdspec: OF phandle args to use for look-up
-@@ -3277,6 +3387,86 @@ static int __genpd_dev_pm_attach(struct device *dev, struct device *base_dev,
+@@ -3459,6 +3569,86 @@ static int __genpd_dev_pm_attach(struct device *dev, struct device *base_dev,
  	return ret;
  }
  
@@ -380,7 +380,7 @@ index 004d8a94101cb..541f818211074 100644
  /**
   * genpd_dev_pm_attach - Attach a device to its PM domain using DT.
   * @dev: Device to attach.
-@@ -3328,16 +3518,32 @@ struct device *genpd_dev_pm_attach_by_id(struct device *dev,
+@@ -3510,16 +3700,32 @@ struct device *genpd_dev_pm_attach_by_id(struct device *dev,
  {
  	struct device *virt_dev;
  	int num_domains;
@@ -420,7 +420,7 @@ index 004d8a94101cb..541f818211074 100644
  
  	if (!genpd_bus_registered)
  		return ERR_PTR(-ENODEV);
-@@ -3350,7 +3556,8 @@ struct device *genpd_dev_pm_attach_by_id(struct device *dev,
+@@ -3532,7 +3738,8 @@ struct device *genpd_dev_pm_attach_by_id(struct device *dev,
  	dev_set_name(virt_dev, "genpd:%u:%s", index, dev_name(dev));
  	virt_dev->bus = &genpd_bus_type;
  	virt_dev->release = genpd_release_dev;
@@ -430,7 +430,7 @@ index 004d8a94101cb..541f818211074 100644
  
  	ret = device_register(virt_dev);
  	if (ret) {
-@@ -3359,7 +3566,12 @@ struct device *genpd_dev_pm_attach_by_id(struct device *dev,
+@@ -3541,7 +3748,12 @@ struct device *genpd_dev_pm_attach_by_id(struct device *dev,
  	}
  
  	/* Try to attach the device to the PM domain at the specified index. */
@@ -444,7 +444,7 @@ index 004d8a94101cb..541f818211074 100644
  	if (ret < 1) {
  		device_unregister(virt_dev);
  		return ret ? ERR_PTR(ret) : NULL;
-@@ -3377,19 +3589,24 @@ EXPORT_SYMBOL_GPL(genpd_dev_pm_attach_by_id);
+@@ -3559,19 +3771,24 @@ EXPORT_SYMBOL_GPL(genpd_dev_pm_attach_by_id);
   * @dev: The device used to lookup the PM domain.
   * @name: The name of the PM domain.
   *
@@ -475,10 +475,10 @@ index 004d8a94101cb..541f818211074 100644
  		return NULL;
  
 diff --git a/include/linux/pm_domain.h b/include/linux/pm_domain.h
-index a99b06776b758..1e7cb9df90f9d 100644
+index 82e3ae72df3e..68589b0a8ee2 100644
 --- a/include/linux/pm_domain.h
 +++ b/include/linux/pm_domain.h
-@@ -463,6 +463,9 @@ int of_genpd_add_provider_simple(struct device_node *np,
+@@ -464,6 +464,9 @@ int of_genpd_add_provider_simple(struct device_node *np,
  int of_genpd_add_provider_onecell(struct device_node *np,
  				  struct genpd_onecell_data *data);
  void of_genpd_del_provider(struct device_node *np);
@@ -488,7 +488,7 @@ index a99b06776b758..1e7cb9df90f9d 100644
  int of_genpd_add_device(const struct of_phandle_args *args, struct device *dev);
  int of_genpd_add_subdomain(const struct of_phandle_args *parent_spec,
  			   const struct of_phandle_args *subdomain_spec);
-@@ -493,6 +496,14 @@ static inline int of_genpd_add_provider_onecell(struct device_node *np,
+@@ -498,6 +501,14 @@ static inline int of_genpd_add_provider_onecell(struct device_node *np,
  
  static inline void of_genpd_del_provider(struct device_node *np) {}
  
@@ -503,3 +503,6 @@ index a99b06776b758..1e7cb9df90f9d 100644
  static inline int of_genpd_add_device(const struct of_phandle_args *args,
  				      struct device *dev)
  {
+-- 
+2.54.0
+

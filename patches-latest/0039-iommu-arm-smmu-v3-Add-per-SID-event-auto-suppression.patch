@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From b3a7e3aa411440fb318db7c6797ee541a2544333 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Thu, 5 Feb 2026 10:33:37 +1100
-Subject: [PATCH] iommu/arm-smmu-v3: Add per-SID event auto-suppression
+Subject: [PATCH 039/145] iommu/arm-smmu-v3: Add per-SID event auto-suppression
 
 Some SoCs have hardware blocks (e.g. PCIe DTI ATS masters) that
 continuously generate SMMU faults on stream IDs shared with real
@@ -17,10 +17,10 @@ and drowning out legitimate events from other streams.
  2 files changed, 44 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c b/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c
-index 95b85a2ced6b9..3a95db118c1f9 100644
+index 7e2134e5e451..06d13c264519 100644
 --- a/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c
 +++ b/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c
-@@ -1942,6 +1942,39 @@ static void arm_smmu_dump_event(struct arm_smmu_device *smmu, u64 *raw,
+@@ -2155,6 +2155,39 @@ static void arm_smmu_dump_event(struct arm_smmu_device *smmu, u64 *raw,
  	}
  }
  
@@ -60,7 +60,7 @@ index 95b85a2ced6b9..3a95db118c1f9 100644
  static irqreturn_t arm_smmu_evtq_thread(int irq, void *dev)
  {
  	u64 evt[EVTQ_ENT_DWORDS];
-@@ -1955,9 +1988,11 @@ static irqreturn_t arm_smmu_evtq_thread(int irq, void *dev)
+@@ -2168,9 +2201,11 @@ static irqreturn_t arm_smmu_evtq_thread(int irq, void *dev)
  	do {
  		while (!queue_remove_raw(q, evt)) {
  			arm_smmu_decode_event(smmu, evt, &event);
@@ -74,10 +74,10 @@ index 95b85a2ced6b9..3a95db118c1f9 100644
  			cond_resched();
  		}
 diff --git a/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.h b/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.h
-index 42bca64aab331..9c9b9dd8fcce2 100644
+index 4abefec37938..2e77883222a2 100644
 --- a/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.h
 +++ b/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.h
-@@ -807,6 +807,14 @@ struct arm_smmu_device {
+@@ -959,6 +959,14 @@ struct arm_smmu_device {
  
  	struct rb_root			streams;
  	struct mutex			streams_mutex;
@@ -92,3 +92,6 @@ index 42bca64aab331..9c9b9dd8fcce2 100644
  };
  
  struct arm_smmu_stream {
+-- 
+2.54.0
+

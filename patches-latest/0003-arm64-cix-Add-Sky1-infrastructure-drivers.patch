@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 4a2a66d21d064c403d7ceb687a394d11d5dd37af Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Sun, 1 Feb 2026 00:39:45 +1100
-Subject: [PATCH] arm64: cix: Add Sky1 infrastructure drivers
+Subject: [PATCH 003/145] arm64: cix: Add Sky1 infrastructure drivers
 
 Add pinctrl, GPIO, reset controllers, clock (AUDSS), PWM, watchdog,
 hwspinlock, NVMEM, SoC info, DDR low-power, and bus performance drivers
@@ -11,12 +11,12 @@ Pinctrl uses our generic pinctrl framework implementation with ACPI
 support and PM context save/restore, replacing the mainline stub which
 uses a different register encoding model.
 ---
- drivers/clk/Kconfig                     |   1 +
+ drivers/clk/Kconfig                     |   2 +-
  drivers/clk/Makefile                    |   1 +
  drivers/clk/cix/Kconfig                 |  12 +
  drivers/clk/cix/Makefile                |   3 +
  drivers/clk/cix/clk-sky1-audss.c        | 792 ++++++++++++++++++++
- drivers/hwspinlock/Kconfig              |  10 +
+ drivers/hwspinlock/Kconfig              |  20 +
  drivers/hwspinlock/Makefile             |   1 +
  drivers/hwspinlock/sky1_hwspinlock.c    | 169 +++++
  drivers/nvmem/Kconfig                   |  11 +
@@ -31,7 +31,7 @@ uses a different register encoding model.
  drivers/reset/Kconfig                   |  17 +
  drivers/reset/Makefile                  |   2 +
  drivers/reset/reset-sky1-audss.c        | 142 ++++
- drivers/reset/reset-sky1.c              | 421 +++++++++++
+ drivers/reset/reset-sky1.c              | 196 +++--
  drivers/soc/Kconfig                     |   1 +
  drivers/soc/Makefile                    |   1 +
  drivers/soc/cix/Kconfig                 |  46 ++
@@ -39,7 +39,7 @@ uses a different register encoding model.
  drivers/soc/cix/cix-bus-perf.c          | 202 +++++
  drivers/soc/cix/cix-ddr-lp.c            | 172 +++++
  drivers/soc/cix/sky1-socinfo.c          | 478 ++++++++++++
- 28 files changed, 3631 insertions(+), 898 deletions(-)
+ 28 files changed, 3345 insertions(+), 970 deletions(-)
  create mode 100644 drivers/clk/cix/Kconfig
  create mode 100644 drivers/clk/cix/Makefile
  create mode 100644 drivers/clk/cix/clk-sky1-audss.c
@@ -47,7 +47,6 @@ uses a different register encoding model.
  create mode 100644 drivers/nvmem/sky1-nvmem.c
  create mode 100644 drivers/pinctrl/pinctrl-acpi.h
  create mode 100644 drivers/reset/reset-sky1-audss.c
- create mode 100644 drivers/reset/reset-sky1.c
  create mode 100644 drivers/soc/cix/Kconfig
  create mode 100644 drivers/soc/cix/Makefile
  create mode 100644 drivers/soc/cix/cix-bus-perf.c
@@ -55,32 +54,33 @@ uses a different register encoding model.
  create mode 100644 drivers/soc/cix/sky1-socinfo.c
 
 diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
-index 3a1611008e48e..4dee61242cc87 100644
+index 1717ce75a907..bb4452b108eb 100644
 --- a/drivers/clk/Kconfig
 +++ b/drivers/clk/Kconfig
-@@ -515,6 +515,7 @@ source "drivers/clk/actions/Kconfig"
+@@ -509,7 +509,7 @@ source "drivers/clk/actions/Kconfig"
  source "drivers/clk/analogbits/Kconfig"
- source "drivers/clk/baikal-t1/Kconfig"
+ source "drivers/clk/aspeed/Kconfig"
  source "drivers/clk/bcm/Kconfig"
+-source "drivers/clk/eswin/Kconfig"
 +source "drivers/clk/cix/Kconfig"
  source "drivers/clk/hisilicon/Kconfig"
  source "drivers/clk/imgtec/Kconfig"
  source "drivers/clk/imx/Kconfig"
 diff --git a/drivers/clk/Makefile b/drivers/clk/Makefile
-index 61ec08404442b..cfc5930b339e4 100644
+index cc108a75a900..1106ec2d19d0 100644
 --- a/drivers/clk/Makefile
 +++ b/drivers/clk/Makefile
-@@ -119,6 +119,7 @@ obj-$(CONFIG_ARCH_ARTPEC)		+= axis/
+@@ -118,6 +118,7 @@ obj-$(CONFIG_COMMON_CLK_AT91)		+= at91/
+ obj-$(CONFIG_ARCH_ARTPEC)		+= axis/
  obj-$(CONFIG_ARC_PLAT_AXS10X)		+= axs10x/
- obj-$(CONFIG_CLK_BAIKAL_T1)		+= baikal-t1/
  obj-y					+= bcm/
 +obj-$(CONFIG_ARCH_CIX)			+= cix/
  obj-$(CONFIG_ARCH_BERLIN)		+= berlin/
  obj-$(CONFIG_ARCH_DAVINCI)		+= davinci/
- obj-$(CONFIG_ARCH_HISI)			+= hisilicon/
+ obj-$(CONFIG_COMMON_CLK_ESWIN)		+= eswin/
 diff --git a/drivers/clk/cix/Kconfig b/drivers/clk/cix/Kconfig
 new file mode 100644
-index 0000000000000..d572e14db5bb5
+index 000000000000..d572e14db5bb
 --- /dev/null
 +++ b/drivers/clk/cix/Kconfig
 @@ -0,0 +1,12 @@
@@ -98,7 +98,7 @@ index 0000000000000..d572e14db5bb5
 +	  controllers and DSP.
 diff --git a/drivers/clk/cix/Makefile b/drivers/clk/cix/Makefile
 new file mode 100644
-index 0000000000000..4a5d3ec7ee218
+index 000000000000..4a5d3ec7ee21
 --- /dev/null
 +++ b/drivers/clk/cix/Makefile
 @@ -0,0 +1,3 @@
@@ -107,7 +107,7 @@ index 0000000000000..4a5d3ec7ee218
 +obj-$(CONFIG_CLK_SKY1_AUDSS) += clk-sky1-audss.o
 diff --git a/drivers/clk/cix/clk-sky1-audss.c b/drivers/clk/cix/clk-sky1-audss.c
 new file mode 100644
-index 0000000000000..975313767b605
+index 000000000000..975313767b60
 --- /dev/null
 +++ b/drivers/clk/cix/clk-sky1-audss.c
 @@ -0,0 +1,792 @@
@@ -904,10 +904,10 @@ index 0000000000000..975313767b605
 +MODULE_DESCRIPTION("CIX Sky1 Audio Subsystem Clock Controller");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/hwspinlock/Kconfig b/drivers/hwspinlock/Kconfig
-index 3874d15b0e9b7..b84c892e18031 100644
+index d84e00084ee2..b84c892e1803 100644
 --- a/drivers/hwspinlock/Kconfig
 +++ b/drivers/hwspinlock/Kconfig
-@@ -53,6 +53,16 @@ config HWSPINLOCK_SUN6I
+@@ -53,4 +53,24 @@ config HWSPINLOCK_SUN6I
  
  	  If unsure, say N.
  
@@ -921,23 +921,30 @@ index 3874d15b0e9b7..b84c892e18031 100644
 +
 +	  If unsure, say N.
 +
- config HSEM_U8500
- 	tristate "STE Hardware Semaphore functionality"
- 	depends on ARCH_U8500 || COMPILE_TEST
++config HSEM_U8500
++	tristate "STE Hardware Semaphore functionality"
++	depends on ARCH_U8500 || COMPILE_TEST
++	help
++	  Say y here to support the STE Hardware Semaphore functionality, which
++	  provides a synchronisation mechanism for the various processor on the
++	  SoC.
++
++	  If unsure, say N.
++
+ endif # HWSPINLOCK
 diff --git a/drivers/hwspinlock/Makefile b/drivers/hwspinlock/Makefile
-index a0f16c9aaa821..1cef7cf04377a 100644
+index 3a740805949d..8ea88740ec9f 100644
 --- a/drivers/hwspinlock/Makefile
 +++ b/drivers/hwspinlock/Makefile
-@@ -8,5 +8,6 @@ obj-$(CONFIG_HWSPINLOCK_OMAP)		+= omap_hwspinlock.o
+@@ -8,4 +8,5 @@ obj-$(CONFIG_HWSPINLOCK_OMAP)		+= omap_hwspinlock.o
  obj-$(CONFIG_HWSPINLOCK_QCOM)		+= qcom_hwspinlock.o
  obj-$(CONFIG_HWSPINLOCK_SPRD)		+= sprd_hwspinlock.o
  obj-$(CONFIG_HWSPINLOCK_STM32)		+= stm32_hwspinlock.o
 +obj-$(CONFIG_HWSPINLOCK_SKY1)		+= sky1_hwspinlock.o
  obj-$(CONFIG_HWSPINLOCK_SUN6I)		+= sun6i_hwspinlock.o
- obj-$(CONFIG_HSEM_U8500)		+= u8500_hsem.o
 diff --git a/drivers/hwspinlock/sky1_hwspinlock.c b/drivers/hwspinlock/sky1_hwspinlock.c
 new file mode 100644
-index 0000000000000..c73ca035def8c
+index 000000000000..c73ca035def8
 --- /dev/null
 +++ b/drivers/hwspinlock/sky1_hwspinlock.c
 @@ -0,0 +1,169 @@
@@ -1111,7 +1118,7 @@ index 0000000000000..c73ca035def8c
 +MODULE_DESCRIPTION("Sky1 Hardware Spinlock driver");
 +MODULE_AUTHOR("Cix Technology Group Co., Ltd.");
 diff --git a/drivers/nvmem/Kconfig b/drivers/nvmem/Kconfig
-index 74ddbd0f79b0e..b6008ecb2f3f0 100644
+index 74ddbd0f79b0..b6008ecb2f3f 100644
 --- a/drivers/nvmem/Kconfig
 +++ b/drivers/nvmem/Kconfig
 @@ -373,6 +373,17 @@ config NVMEM_SPMI_SDAM
@@ -1133,7 +1140,7 @@ index 74ddbd0f79b0e..b6008ecb2f3f0 100644
  	tristate "Spreadtrum SoC eFuse Support"
  	depends on ARCH_SPRD || COMPILE_TEST
 diff --git a/drivers/nvmem/Makefile b/drivers/nvmem/Makefile
-index 7252b8ec88d46..3fd681d80f550 100644
+index 7252b8ec88d4..3fd681d80f55 100644
 --- a/drivers/nvmem/Makefile
 +++ b/drivers/nvmem/Makefile
 @@ -74,6 +74,8 @@ obj-$(CONFIG_NVMEM_SNVS_LPGPR)		+= nvmem_snvs_lpgpr.o
@@ -1147,7 +1154,7 @@ index 7252b8ec88d46..3fd681d80f550 100644
  obj-$(CONFIG_NVMEM_STM32_ROMEM)		+= nvmem_stm32_romem.o
 diff --git a/drivers/nvmem/sky1-nvmem.c b/drivers/nvmem/sky1-nvmem.c
 new file mode 100644
-index 0000000000000..aaf55aa4db236
+index 000000000000..aaf55aa4db23
 --- /dev/null
 +++ b/drivers/nvmem/sky1-nvmem.c
 @@ -0,0 +1,93 @@
@@ -1245,19 +1252,19 @@ index 0000000000000..aaf55aa4db236
 +MODULE_DESCRIPTION("Sky1 NVMEM (eFuse) driver");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/pinctrl/Makefile b/drivers/pinctrl/Makefile
-index be5200c23e601..093e9d8de5f95 100644
+index a35d71135abf..6ab67a9a66a4 100644
 --- a/drivers/pinctrl/Makefile
 +++ b/drivers/pinctrl/Makefile
-@@ -69,6 +69,7 @@ obj-$(CONFIG_PINCTRL_ZYNQ)	+= pinctrl-zynq.o
- obj-y				+= actions/
- obj-$(CONFIG_ARCH_ASPEED)	+= aspeed/
+@@ -70,6 +70,7 @@ obj-y				+= actions/
+ obj-y				+= airoha/
+ obj-$(CONFIG_PINCTRL_ASPEED)	+= aspeed/
  obj-y				+= bcm/
 +obj-$(CONFIG_PINCTRL_SKY1)	+= cix/
  obj-$(CONFIG_PINCTRL_BERLIN)	+= berlin/
  obj-y				+= cirrus/
  obj-y				+= cix/
 diff --git a/drivers/pinctrl/cix/Kconfig b/drivers/pinctrl/cix/Kconfig
-index 1529b1af63886..64593fe0121c7 100644
+index 1529b1af6388..64593fe0121c 100644
 --- a/drivers/pinctrl/cix/Kconfig
 +++ b/drivers/pinctrl/cix/Kconfig
 @@ -1,15 +1,13 @@
@@ -1279,7 +1286,7 @@ index 1529b1af63886..64593fe0121c7 100644
  	help
  	  Say Y here to enable the sky1 pinctrl driver
 diff --git a/drivers/pinctrl/cix/pinctrl-sky1-base.c b/drivers/pinctrl/cix/pinctrl-sky1-base.c
-index a5b583f10441e..7efd50ce8a04a 100644
+index a5b583f10441..7efd50ce8a04 100644
 --- a/drivers/pinctrl/cix/pinctrl-sky1-base.c
 +++ b/drivers/pinctrl/cix/pinctrl-sky1-base.c
 @@ -1,503 +1,543 @@
@@ -2292,7 +2299,7 @@ index a5b583f10441e..7efd50ce8a04a 100644
 +MODULE_DESCRIPTION("Cix Sky1 common pinctrl driver");
  MODULE_LICENSE("GPL");
 diff --git a/drivers/pinctrl/cix/pinctrl-sky1.c b/drivers/pinctrl/cix/pinctrl-sky1.c
-index 5d0d8be815b2b..c0649e283fdf2 100644
+index 938894058d86..72a7fde8aad5 100644
 --- a/drivers/pinctrl/cix/pinctrl-sky1.c
 +++ b/drivers/pinctrl/cix/pinctrl-sky1.c
 @@ -1,494 +1,443 @@
@@ -3288,7 +3295,7 @@ index 5d0d8be815b2b..c0649e283fdf2 100644
  
  	return pinctrl_force_default(spctl->pctl);
  }
-@@ -539,10 +534,18 @@ static int sky1_pinctrl_probe(struct platform_device *pdev)
+@@ -538,10 +533,18 @@ static int sky1_pinctrl_probe(struct platform_device *pdev)
  	return sky1_base_pinctrl_probe(pdev, pinctrl_info);
  }
  
@@ -3308,14 +3315,14 @@ index 5d0d8be815b2b..c0649e283fdf2 100644
  		.pm = &sky1_pinctrl_pm_ops,
  	},
  	.probe = sky1_pinctrl_probe,
-@@ -556,4 +559,4 @@ arch_initcall(sky1_pinctrl_init);
+@@ -555,4 +558,4 @@ arch_initcall(sky1_pinctrl_init);
  
  MODULE_AUTHOR("Jerry Zhu <Jerry.Zhu@cixtech.com>");
  MODULE_DESCRIPTION("Cix Sky1 pinctrl driver");
 -MODULE_LICENSE("GPL");
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/pinctrl/cix/pinctrl-sky1.h b/drivers/pinctrl/cix/pinctrl-sky1.h
-index a8b0998529651..1c9b835634e60 100644
+index a8b099852965..1c9b835634e6 100644
 --- a/drivers/pinctrl/cix/pinctrl-sky1.h
 +++ b/drivers/pinctrl/cix/pinctrl-sky1.h
 @@ -6,29 +6,28 @@
@@ -3394,7 +3401,7 @@ index a8b0998529651..1c9b835634e60 100644
  
 diff --git a/drivers/pinctrl/pinctrl-acpi.h b/drivers/pinctrl/pinctrl-acpi.h
 new file mode 100644
-index 0000000000000..53d0eb919b831
+index 000000000000..53d0eb919b83
 --- /dev/null
 +++ b/drivers/pinctrl/pinctrl-acpi.h
 @@ -0,0 +1,101 @@
@@ -3500,11 +3507,11 @@ index 0000000000000..53d0eb919b831
 +
 +#endif
 diff --git a/drivers/reset/Kconfig b/drivers/reset/Kconfig
-index 52ee102621eef..830b27f87da1d 100644
+index d009eb0849a3..a0cb3ecdb08b 100644
 --- a/drivers/reset/Kconfig
 +++ b/drivers/reset/Kconfig
-@@ -411,4 +411,21 @@ source "drivers/reset/sti/Kconfig"
- source "drivers/reset/hisilicon/Kconfig"
+@@ -423,4 +423,21 @@ source "drivers/reset/starfive/Kconfig"
+ source "drivers/reset/sti/Kconfig"
  source "drivers/reset/tegra/Kconfig"
  
 +config RESET_SKY1
@@ -3526,10 +3533,10 @@ index 52ee102621eef..830b27f87da1d 100644
 +
  endif
 diff --git a/drivers/reset/Makefile b/drivers/reset/Makefile
-index 9c3e484dfd81a..4ba0fe0e319a1 100644
+index 3e52569bd276..e7c7735cd57a 100644
 --- a/drivers/reset/Makefile
 +++ b/drivers/reset/Makefile
-@@ -50,3 +50,5 @@ obj-$(CONFIG_RESET_UNIPHIER) += reset-uniphier.o
+@@ -52,3 +52,5 @@ obj-$(CONFIG_RESET_UNIPHIER) += reset-uniphier.o
  obj-$(CONFIG_RESET_UNIPHIER_GLUE) += reset-uniphier-glue.o
  obj-$(CONFIG_RESET_ZYNQ) += reset-zynq.o
  obj-$(CONFIG_RESET_ZYNQMP) += reset-zynqmp.o
@@ -3537,7 +3544,7 @@ index 9c3e484dfd81a..4ba0fe0e319a1 100644
 +obj-$(CONFIG_RESET_SKY1_AUDSS) += reset-sky1-audss.o
 diff --git a/drivers/reset/reset-sky1-audss.c b/drivers/reset/reset-sky1-audss.c
 new file mode 100644
-index 0000000000000..62950613f199d
+index 000000000000..62950613f199
 --- /dev/null
 +++ b/drivers/reset/reset-sky1-audss.c
 @@ -0,0 +1,142 @@
@@ -3684,279 +3691,142 @@ index 0000000000000..62950613f199d
 +MODULE_DESCRIPTION("CIX Sky1 Audio Subsystem Reset Controller");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/reset/reset-sky1.c b/drivers/reset/reset-sky1.c
-new file mode 100644
-index 0000000000000..0a2871372118b
---- /dev/null
+index 78e80a533c39..0a2871372118 100644
+--- a/drivers/reset/reset-sky1.c
 +++ b/drivers/reset/reset-sky1.c
-@@ -0,0 +1,421 @@
-+// SPDX-License-Identifier: GPL-2.0-only
-+/*
-+ *
+@@ -1,58 +1,61 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ /*
+  *
+- * CIX System Reset Controller (SRC) driver
 + * SKY1 System Reset Controller (SRC) driver
-+ *
-+ * Author: Jerry Zhu <jerry.zhu@cixtech.com>
-+ */
-+
+  *
+  * Author: Jerry Zhu <jerry.zhu@cixtech.com>
+  */
+ 
 +#include <linux/acpi.h>
-+#include <linux/delay.h>
-+#include <linux/mfd/syscon.h>
-+#include <linux/module.h>
-+#include <linux/of.h>
-+#include <linux/platform_device.h>
+ #include <linux/delay.h>
+ #include <linux/mfd/syscon.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+-#include <linux/regmap.h>
 +#include <linux/property.h>
-+#include <linux/reset-controller.h>
+ #include <linux/reset-controller.h>
 +#include <linux/regmap.h>
 +#include <dt-bindings/reset/sky1-reset.h>
 +#include <dt-bindings/reset/sky1-reset-fch.h>
-+
+ 
+-#include <dt-bindings/reset/cix,sky1-system-control.h>
+-#include <dt-bindings/reset/cix,sky1-s5-system-control.h>
+-
+-#define SKY1_RESET_SLEEP_MIN_US		50
+-#define SKY1_RESET_SLEEP_MAX_US		100
+-
 +#define SKY1_RESET_SLEEP_MIN_US		10000
 +#define SKY1_RESET_SLEEP_MAX_US		20000
-+struct sky1_src_signal {
+ struct sky1_src_signal {
+-	unsigned int offset;
+-	unsigned int bit;
 +	unsigned int offset, bit;
-+};
-+
-+struct sky1_src_variant {
-+	const struct sky1_src_signal *signals;
-+	unsigned int signals_num;
+ };
+ 
+ struct sky1_src_variant {
+ 	const struct sky1_src_signal *signals;
+ 	unsigned int signals_num;
 +	struct reset_control_ops ops;
-+};
-+
-+struct sky1_src {
-+	struct reset_controller_dev rcdev;
-+	struct regmap *regmap;
+ };
+ 
+ struct sky1_src {
+ 	struct reset_controller_dev rcdev;
+-	const struct sky1_src_signal *signals;
+ 	struct regmap *regmap;
 +	const struct sky1_src_signal *signals;
-+};
-+
+ };
+ 
+-enum {
 +enum sky1_src_registers {
-+	CSU_PM_RESET				= 0x304,
+ 	CSU_PM_RESET				= 0x304,
+-	SENSORFUSION_RESET			= 0x308,
+-	SENSORFUSION_NOC_RESET			= 0x30c,
 +	SENSORHUB_RESET				= 0x308,
 +	SENSORHUB_NOC_RESET			= 0x30c,
 +
-+	RESET_GROUP0_S0_DOMAIN_0		= 0x400,
-+	RESET_GROUP0_S0_DOMAIN_1		= 0x404,
-+	RESET_GROUP1_USB_PHYS			= 0x408,
-+	RESET_GROUP1_USB_CONTROLLERS		= 0x40c,
+ 	RESET_GROUP0_S0_DOMAIN_0		= 0x400,
+ 	RESET_GROUP0_S0_DOMAIN_1		= 0x404,
+ 	RESET_GROUP1_USB_PHYS			= 0x408,
+ 	RESET_GROUP1_USB_CONTROLLERS		= 0x40c,
 +
-+	RESET_GROUP0_RCSU			= 0x800,
-+	RESET_GROUP1_RCSU			= 0x804,
+ 	RESET_GROUP0_RCSU			= 0x800,
+ 	RESET_GROUP1_RCSU			= 0x804,
 +
-+};
-+
+ };
+ 
+-static const struct sky1_src_signal sky1_src_signals[] = {
 +static const struct sky1_src_signal sky1_src_signals[SKY1_RESET_NUM] = {
-+	/* reset group1 for s0 domain modules */
-+	[SKY1_CSU_PM_RESET_N]		= { CSU_PM_RESET, BIT(0) },
+ 	/* reset group1 for s0 domain modules */
+ 	[SKY1_CSU_PM_RESET_N]		= { CSU_PM_RESET, BIT(0) },
+-	[SKY1_SENSORFUSION_RESET_N]	= { SENSORFUSION_RESET, BIT(0) },
+-	[SKY1_SENSORFUSION_NOC_RESET_N]	= { SENSORFUSION_NOC_RESET, BIT(0) },
 +	[SKY1_SENSORHUB_RESET_N]	= { SENSORHUB_RESET, BIT(0) },
 +	[SKY1_SENSORHUB_NOC_RESET_N]	= { SENSORHUB_NOC_RESET, BIT(0) },
-+	[SKY1_DDRC_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(0) },
-+	[SKY1_GIC_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(1) },
-+	[SKY1_CI700_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(2) },
-+	[SKY1_SYS_NI700_RESET_N]	= { RESET_GROUP0_S0_DOMAIN_0, BIT(3) },
-+	[SKY1_MM_NI700_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(4) },
-+	[SKY1_PCIE_NI700_RESET_N]	= { RESET_GROUP0_S0_DOMAIN_0, BIT(5) },
-+	[SKY1_GPU_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(6) },
-+	[SKY1_NPUTOP_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(7) },
-+	[SKY1_NPUCORE0_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(8) },
-+	[SKY1_NPUCORE1_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(9) },
-+	[SKY1_NPUCORE2_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(10) },
-+	[SKY1_VPU_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(11) },
-+	[SKY1_ISP_SRESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(12) },
-+	[SKY1_ISP_ARESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(13) },
-+	[SKY1_ISP_HRESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(14) },
-+	[SKY1_ISP_GDCRESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(15) },
-+	[SKY1_DPU_RESET0_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(16) },
-+	[SKY1_DPU_RESET1_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(17) },
-+	[SKY1_DPU_RESET2_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(18) },
-+	[SKY1_DPU_RESET3_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(19) },
-+	[SKY1_DPU_RESET4_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(20) },
-+	[SKY1_DP_RESET0_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(21) },
-+	[SKY1_DP_RESET1_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(22) },
-+	[SKY1_DP_RESET2_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(23) },
-+	[SKY1_DP_RESET3_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(24) },
-+	[SKY1_DP_RESET4_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(25) },
-+	[SKY1_DP_PHY_RST_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(26) },
-+
-+	/* reset group1 for s0 domain modules */
-+	[SKY1_AUDIO_HIFI5_RESET_N]	= { RESET_GROUP0_S0_DOMAIN_1, BIT(0) },
-+	[SKY1_AUDIO_HIFI5_NOC_RESET_N]	= { RESET_GROUP0_S0_DOMAIN_1, BIT(1) },
-+	[SKY1_CSIDPHY_PRST0_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(2) },
-+	[SKY1_CSIDPHY_CMNRST0_N]	= { RESET_GROUP0_S0_DOMAIN_1, BIT(3) },
-+	[SKY1_CSI0_RST_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(4) },
-+	[SKY1_CSIDPHY_PRST1_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(5) },
-+	[SKY1_CSIDPHY_CMNRST1_N]	= { RESET_GROUP0_S0_DOMAIN_1, BIT(6) },
-+	[SKY1_CSI1_RST_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(7) },
-+	[SKY1_CSI2_RST_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(8) },
-+	[SKY1_CSI3_RST_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(9) },
-+	[SKY1_CSIBRDGE0_RST_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(10) },
-+	[SKY1_CSIBRDGE1_RST_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(11) },
-+	[SKY1_CSIBRDGE2_RST_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(12) },
-+	[SKY1_CSIBRDGE3_RST_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(13) },
-+	[SKY1_GMAC0_RST_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(14) },
-+	[SKY1_GMAC1_RST_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(15) },
-+	[SKY1_PCIE0_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(16) },
-+	[SKY1_PCIE1_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(17) },
-+	[SKY1_PCIE2_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(18) },
-+	[SKY1_PCIE3_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(19) },
-+	[SKY1_PCIE4_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_1, BIT(20) },
-+
-+	/* reset group1 for usb phys */
-+	[SKY1_USB_DP_PHY0_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(0) },
-+	[SKY1_USB_DP_PHY1_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(1) },
-+	[SKY1_USB_DP_PHY2_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(2) },
-+	[SKY1_USB_DP_PHY3_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(3) },
-+	[SKY1_USB_DP_PHY0_RST_N]		= { RESET_GROUP1_USB_PHYS, BIT(4) },
-+	[SKY1_USB_DP_PHY1_RST_N]		= { RESET_GROUP1_USB_PHYS, BIT(5) },
-+	[SKY1_USB_DP_PHY2_RST_N]		= { RESET_GROUP1_USB_PHYS, BIT(6) },
-+	[SKY1_USB_DP_PHY3_RST_N]		= { RESET_GROUP1_USB_PHYS, BIT(7) },
-+	[SKY1_USBPHY_SS_PST_N]			= { RESET_GROUP1_USB_PHYS, BIT(8) },
-+	[SKY1_USBPHY_SS_RST_N]			= { RESET_GROUP1_USB_PHYS, BIT(9) },
-+	[SKY1_USBPHY_HS0_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(10) },
-+	[SKY1_USBPHY_HS1_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(11) },
-+	[SKY1_USBPHY_HS2_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(12) },
-+	[SKY1_USBPHY_HS3_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(13) },
-+	[SKY1_USBPHY_HS4_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(14) },
-+	[SKY1_USBPHY_HS5_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(15) },
-+	[SKY1_USBPHY_HS6_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(16) },
-+	[SKY1_USBPHY_HS7_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(17) },
-+	[SKY1_USBPHY_HS8_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(18) },
-+	[SKY1_USBPHY_HS9_PRST_N]		= { RESET_GROUP1_USB_PHYS, BIT(19) },
-+
-+	/* reset group1 for usb controllers */
-+	[SKY1_USBC_SS0_PRST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(0) },
-+	[SKY1_USBC_SS1_PRST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(1) },
-+	[SKY1_USBC_SS2_PRST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(2) },
-+	[SKY1_USBC_SS3_PRST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(3) },
-+	[SKY1_USBC_SS4_PRST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(4) },
-+	[SKY1_USBC_SS5_PRST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(5) },
-+	[SKY1_USBC_SS0_RST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(6) },
-+	[SKY1_USBC_SS1_RST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(7) },
-+	[SKY1_USBC_SS2_RST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(8) },
-+	[SKY1_USBC_SS3_RST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(9) },
-+	[SKY1_USBC_SS4_RST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(10) },
-+	[SKY1_USBC_SS5_RST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(11) },
-+	[SKY1_USBC_HS0_PRST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(12) },
-+	[SKY1_USBC_HS1_PRST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(13) },
-+	[SKY1_USBC_HS2_PRST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(14) },
-+	[SKY1_USBC_HS3_PRST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(15) },
-+	[SKY1_USBC_HS0_RST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(16) },
-+	[SKY1_USBC_HS1_RST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(17) },
-+	[SKY1_USBC_HS2_RST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(18) },
-+	[SKY1_USBC_HS3_RST_N]		= { RESET_GROUP1_USB_CONTROLLERS, BIT(19) },
-+
-+	/* reset group0 for rcsu */
-+	[SKY1_AUDIO_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(0) },
-+	[SKY1_CI700_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(1) },
-+	[SKY1_CSI_RCSU0_RESET_N]		= { RESET_GROUP0_RCSU, BIT(2) },
-+	[SKY1_CSI_RCSU1_RESET_N]		= { RESET_GROUP0_RCSU, BIT(3) },
-+	[SKY1_CSU_PM_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(4) },
-+	[SKY1_DDR_BROADCAST_RCSU_RESET_N]	= { RESET_GROUP0_RCSU, BIT(5) },
-+	[SKY1_DDR_CTRL_RCSU_0_RESET_N]		= { RESET_GROUP0_RCSU, BIT(6) },
-+	[SKY1_DDR_CTRL_RCSU_1_RESET_N]		= { RESET_GROUP0_RCSU, BIT(7) },
-+	[SKY1_DDR_CTRL_RCSU_2_RESET_N]		= { RESET_GROUP0_RCSU, BIT(8) },
-+	[SKY1_DDR_CTRL_RCSU_3_RESET_N]		= { RESET_GROUP0_RCSU, BIT(9) },
-+	[SKY1_DDR_TZC400_RCSU_0_RESET_N]	= { RESET_GROUP0_RCSU, BIT(10) },
-+	[SKY1_DDR_TZC400_RCSU_1_RESET_N]	= { RESET_GROUP0_RCSU, BIT(11) },
-+	[SKY1_DDR_TZC400_RCSU_2_RESET_N]	= { RESET_GROUP0_RCSU, BIT(12) },
-+	[SKY1_DDR_TZC400_RCSU_3_RESET_N]	= { RESET_GROUP0_RCSU, BIT(13) },
-+	[SKY1_DP0_RCSU_RESET_N]			= { RESET_GROUP0_RCSU, BIT(14) },
-+	[SKY1_DP1_RCSU_RESET_N]			= { RESET_GROUP0_RCSU, BIT(15) },
-+	[SKY1_DP2_RCSU_RESET_N]			= { RESET_GROUP0_RCSU, BIT(16) },
-+	[SKY1_DP3_RCSU_RESET_N]			= { RESET_GROUP0_RCSU, BIT(17) },
-+	[SKY1_DP4_RCSU_RESET_N]			= { RESET_GROUP0_RCSU, BIT(18) },
-+	[SKY1_DPU0_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(19) },
-+	[SKY1_DPU1_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(20) },
-+	[SKY1_DPU2_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(21) },
-+	[SKY1_DPU3_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(22) },
-+	[SKY1_DPU4_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(23) },
-+	[SKY1_DSU_RCSU_RESET_N]			= { RESET_GROUP0_RCSU, BIT(24) },
-+	[SKY1_FCH_RCSU_RESET_N]			= { RESET_GROUP0_RCSU, BIT(25) },
-+	[SKY1_GICD_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(26) },
-+	[SKY1_GMAC_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(27) },
-+	[SKY1_GPU_RCSU_RESET_N]			= { RESET_GROUP0_RCSU, BIT(28) },
-+	[SKY1_ISP_RCSU0_RESET_N]		= { RESET_GROUP0_RCSU, BIT(29) },
-+	[SKY1_ISP_RCSU1_RESET_N]		= { RESET_GROUP0_RCSU, BIT(30) },
-+	[SKY1_NI700_MMHUB_RCSU_RESET_N]		= { RESET_GROUP0_RCSU, BIT(31) },
-+
-+	/* reset group1 for rcsu */
-+	[SKY1_NPU_RCSU_RESET_N]			= { RESET_GROUP1_RCSU, BIT(0) },
-+	[SKY1_NI700_PCIE_RCSU_RESET_N]		= { RESET_GROUP1_RCSU, BIT(1) },
-+	[SKY1_PCIE_X421_RCSU_RESET_N]		= { RESET_GROUP1_RCSU, BIT(2) },
-+	[SKY1_PCIE_X8_RCSU_RESET_N]		= { RESET_GROUP1_RCSU, BIT(3) },
-+	[SKY1_SF_RCSU_RESET_N]			= { RESET_GROUP1_RCSU, BIT(4) },
-+	[SKY1_RCSU_SMMU_MMHUB_RESET_N]		= { RESET_GROUP1_RCSU, BIT(5) },
-+	[SKY1_RCSU_SMMU_PCIEHUB_RESET_N]	= { RESET_GROUP1_RCSU, BIT(6) },
-+	[SKY1_RCSU_SYSHUB_RESET_N]		= { RESET_GROUP1_RCSU, BIT(7) },
-+	[SKY1_NI700_SMN_RCSU_RESET_N]		= { RESET_GROUP1_RCSU, BIT(8) },
-+	[SKY1_NI700_SYSHUB_RCSU_RESET_N]	= { RESET_GROUP1_RCSU, BIT(9) },
-+	[SKY1_RCSU_USB2_HOST0_RESET_N]		= { RESET_GROUP1_RCSU, BIT(10) },
-+	[SKY1_RCSU_USB2_HOST1_RESET_N]		= { RESET_GROUP1_RCSU, BIT(11) },
-+	[SKY1_RCSU_USB2_HOST2_RESET_N]		= { RESET_GROUP1_RCSU, BIT(12) },
-+	[SKY1_RCSU_USB2_HOST3_RESET_N]		= { RESET_GROUP1_RCSU, BIT(13) },
-+	[SKY1_RCSU_USB3_TYPEA_DRD_RESET_N]	= { RESET_GROUP1_RCSU, BIT(14) },
-+	[SKY1_RCSU_USB3_TYPEC_DRD_RESET_N]	= { RESET_GROUP1_RCSU, BIT(15) },
-+	[SKY1_RCSU_USB3_TYPEC_HOST0_RESET_N]	= { RESET_GROUP1_RCSU, BIT(16) },
-+	[SKY1_RCSU_USB3_TYPEC_HOST1_RESET_N]	= { RESET_GROUP1_RCSU, BIT(17) },
-+	[SKY1_RCSU_USB3_TYPEC_HOST2_RESET_N]	= { RESET_GROUP1_RCSU, BIT(18) },
-+	[SKY1_VPU_RCSU_RESET_N]			= { RESET_GROUP1_RCSU, BIT(19) },
-+
-+};
-+
+ 	[SKY1_DDRC_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(0) },
+ 	[SKY1_GIC_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(1) },
+ 	[SKY1_CI700_RESET_N]		= { RESET_GROUP0_S0_DOMAIN_0, BIT(2) },
+@@ -203,20 +206,16 @@ static const struct sky1_src_signal sky1_src_signals[] = {
+ 	[SKY1_RCSU_USB3_TYPEC_HOST1_RESET_N]	= { RESET_GROUP1_RCSU, BIT(17) },
+ 	[SKY1_RCSU_USB3_TYPEC_HOST2_RESET_N]	= { RESET_GROUP1_RCSU, BIT(18) },
+ 	[SKY1_VPU_RCSU_RESET_N]			= { RESET_GROUP1_RCSU, BIT(19) },
+-};
+ 
+-static const struct sky1_src_variant variant_sky1 = {
+-	.signals = sky1_src_signals,
+-	.signals_num = ARRAY_SIZE(sky1_src_signals),
+ };
+ 
+-enum {
+-	FCH_SW_RST_FUNC			= 0x8,
+-	FCH_SW_RST_BUS			= 0xc,
+-	FCH_SW_XSPI			= 0x10,
 +enum sky1_src_fch_registers {
 +	FCH_SW_RST_FUNC			= 0x008,
 +	FCH_SW_RST_BUS			= 0x00c,
 +	FCH_SW_XSPI			= 0x010,
-+};
-+
+ };
+ 
+-static const struct sky1_src_signal sky1_src_fch_signals[] = {
 +static const struct sky1_src_signal sky1_src_fch_signals[SKY1_FCH_RESET_NUM] = {
-+	/* resets for fch_sw_rst_func */
-+	[SW_I3C0_RST_FUNC_G_N]	= { FCH_SW_RST_FUNC, BIT(0) },
-+	[SW_I3C0_RST_FUNC_I_N]	= { FCH_SW_RST_FUNC, BIT(1) },
-+	[SW_I3C1_RST_FUNC_G_N]	= { FCH_SW_RST_FUNC, BIT(2) },
-+	[SW_I3C1_RST_FUNC_I_N]	= { FCH_SW_RST_FUNC, BIT(3) },
-+	[SW_UART0_RST_FUNC_N]	= { FCH_SW_RST_FUNC, BIT(4) },
-+	[SW_UART1_RST_FUNC_N]	= { FCH_SW_RST_FUNC, BIT(5) },
-+	[SW_UART2_RST_FUNC_N]	= { FCH_SW_RST_FUNC, BIT(6) },
-+	[SW_UART3_RST_FUNC_N]	= { FCH_SW_RST_FUNC, BIT(7) },
-+	[SW_TIMER_RST_FUNC_N]	= { FCH_SW_RST_FUNC, BIT(20) },
-+
-+	/* resets for fch_sw_rst_bus */
-+	[SW_I3C0_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(0) },
-+	[SW_I3C1_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(1) },
-+	[SW_DMA_RST_AXI_N]	= { FCH_SW_RST_BUS, BIT(2) },
-+	[SW_UART0_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(4) },
-+	[SW_UART1_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(5) },
-+	[SW_UART2_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(6) },
-+	[SW_UART3_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(7) },
-+	[SW_SPI0_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(8) },
-+	[SW_SPI1_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(9) },
-+	[SW_I2C0_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(12) },
-+	[SW_I2C1_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(13) },
-+	[SW_I2C2_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(14) },
-+	[SW_I2C3_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(15) },
-+	[SW_I2C4_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(16) },
-+	[SW_I2C5_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(17) },
-+	[SW_I2C6_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(18) },
-+	[SW_I2C7_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(19) },
-+	[SW_GPIO_RST_APB_N]	= { FCH_SW_RST_BUS, BIT(21) },
-+
-+	/* resets for fch_sw_xspi */
-+	[SW_XSPI_REG_RST_N]	= { FCH_SW_XSPI, BIT(0) },
-+	[SW_XSPI_SYS_RST_N]	= { FCH_SW_XSPI, BIT(1) },
-+};
-+
-+static struct sky1_src *to_sky1_src(struct reset_controller_dev *rcdev)
-+{
-+	return container_of(rcdev, struct sky1_src, rcdev);
-+}
-+
+ 	/* resets for fch_sw_rst_func */
+ 	[SW_I3C0_RST_FUNC_G_N]	= { FCH_SW_RST_FUNC, BIT(0) },
+ 	[SW_I3C0_RST_FUNC_I_N]	= { FCH_SW_RST_FUNC, BIT(1) },
+@@ -253,115 +252,170 @@ static const struct sky1_src_signal sky1_src_fch_signals[] = {
+ 	[SW_XSPI_SYS_RST_N]	= { FCH_SW_XSPI, BIT(1) },
+ };
+ 
+-static const struct sky1_src_variant variant_sky1_fch = {
+-	.signals = sky1_src_fch_signals,
+-	.signals_num = ARRAY_SIZE(sky1_src_fch_signals),
+-};
+-
+ static struct sky1_src *to_sky1_src(struct reset_controller_dev *rcdev)
+ {
+ 	return container_of(rcdev, struct sky1_src, rcdev);
+ }
+ 
+-static int sky1_reset_set(struct reset_controller_dev *rcdev,
+-			  unsigned long id, bool assert)
 +static int sky1_reset_update(struct sky1_src *sky1src,
 +			     unsigned long id, unsigned int value)
-+{
-+	const struct sky1_src_signal *signal = &sky1src->signals[id];
-+
-+	return regmap_update_bits(sky1src->regmap,
-+				  signal->offset, signal->bit, value);
-+}
-+
+ {
+-	struct sky1_src *sky1src = to_sky1_src(rcdev);
+ 	const struct sky1_src_signal *signal = &sky1src->signals[id];
+-	unsigned int value = assert ? 0 : signal->bit;
+ 
+ 	return regmap_update_bits(sky1src->regmap,
+ 				  signal->offset, signal->bit, value);
+ }
+ 
+-static int sky1_reset_assert(struct reset_controller_dev *rcdev,
 +static int sky1_reset_set(struct reset_controller_dev *rcdev,
 +			  unsigned long id, bool assert)
 +{
@@ -3968,27 +3838,37 @@ index 0000000000000..0a2871372118b
 +}
 +
 +static int sky1_reset(struct reset_controller_dev *rcdev,
-+			     unsigned long id)
-+{
-+	sky1_reset_set(rcdev, id, true);
-+	usleep_range(SKY1_RESET_SLEEP_MIN_US,
-+		     SKY1_RESET_SLEEP_MAX_US);
-+
-+	sky1_reset_set(rcdev, id, false);
+ 			     unsigned long id)
+ {
+ 	sky1_reset_set(rcdev, id, true);
+ 	usleep_range(SKY1_RESET_SLEEP_MIN_US,
+ 		     SKY1_RESET_SLEEP_MAX_US);
+-	return 0;
+-}
+ 
+-static int sky1_reset_deassert(struct reset_controller_dev *rcdev,
+-			       unsigned long id)
+-{
+ 	sky1_reset_set(rcdev, id, false);
 +
 +	/*
 +	 * Ensure component is taken out reset state by sleeping also after
 +	 * deasserting the reset, Otherwise, the component may not be ready
 +	 * for operation.
 +	 */
-+	usleep_range(SKY1_RESET_SLEEP_MIN_US,
-+		     SKY1_RESET_SLEEP_MAX_US);
-+	return 0;
-+}
-+
+ 	usleep_range(SKY1_RESET_SLEEP_MIN_US,
+ 		     SKY1_RESET_SLEEP_MAX_US);
+ 	return 0;
+ }
+ 
+-static int sky1_reset(struct reset_controller_dev *rcdev,
+-		      unsigned long id)
 +static int sky1_reset_assert(struct reset_controller_dev *rcdev,
 +			     unsigned long id)
-+{
+ {
+-	sky1_reset_assert(rcdev, id);
+-	sky1_reset_deassert(rcdev, id);
+-	return 0;
 +	return sky1_reset_set(rcdev, id, true);
 +}
 +
@@ -3996,18 +3876,23 @@ index 0000000000000..0a2871372118b
 +			       unsigned long id)
 +{
 +	return sky1_reset_set(rcdev, id, false);
-+}
-+
-+static int sky1_reset_status(struct reset_controller_dev *rcdev,
+ }
+ 
+ static int sky1_reset_status(struct reset_controller_dev *rcdev,
+-			     unsigned long id)
 +			       unsigned long id)
-+{
-+	unsigned int value = 0;
+ {
+ 	unsigned int value = 0;
+-	struct sky1_src *sky1src = to_sky1_src(rcdev);
+-	const struct sky1_src_signal *signal = &sky1src->signals[id];
+-
+-	regmap_read(sky1src->regmap, signal->offset, &value);
 +	struct sky1_src *sky1_src = to_sky1_src(rcdev);
 +	const struct sky1_src_signal *signal = &sky1_src->signals[id];
 +	regmap_read(sky1_src->regmap, signal->offset, &value);
-+	return !(value & signal->bit);
+ 	return !(value & signal->bit);
 +
-+}
+ }
 +static const struct sky1_src_variant variant_sky1 = {
 +	.signals = sky1_src_signals,
 +	.signals_num = ARRAY_SIZE(sky1_src_signals),
@@ -4018,7 +3903,12 @@ index 0000000000000..0a2871372118b
 +		.status   = sky1_reset_status,
 +	},
 +};
-+
+ 
+-static const struct reset_control_ops sky1_src_ops = {
+-	.reset    = sky1_reset,
+-	.assert   = sky1_reset_assert,
+-	.deassert = sky1_reset_deassert,
+-	.status   = sky1_reset_status
 +static const struct sky1_src_variant variant_sky1_fch = {
 +	.signals = sky1_src_fch_signals,
 +	.signals_num = ARRAY_SIZE(sky1_src_fch_signals),
@@ -4028,12 +3918,13 @@ index 0000000000000..0a2871372118b
 +		.deassert = sky1_reset_deassert,
 +		.status	  = sky1_reset_status,
 +	},
-+};
-+
-+static int sky1_reset_probe(struct platform_device *pdev)
-+{
-+	struct sky1_src *sky1src;
-+	struct device *dev = &pdev->dev;
+ };
+ 
+ static int sky1_reset_probe(struct platform_device *pdev)
+ {
+ 	struct sky1_src *sky1src;
+ 	struct device *dev = &pdev->dev;
+-	const struct sky1_src_variant *variant;
 +	struct resource *res;
 +	void __iomem *base;
 +	const struct sky1_src_variant *variant = device_get_match_data(dev);
@@ -4043,11 +3934,12 @@ index 0000000000000..0a2871372118b
 +		.reg_stride = 4,
 +		.name = "src",
 +	};
-+
-+	sky1src = devm_kzalloc(dev, sizeof(*sky1src), GFP_KERNEL);
-+	if (!sky1src)
-+		return -ENOMEM;
-+
+ 
+ 	sky1src = devm_kzalloc(dev, sizeof(*sky1src), GFP_KERNEL);
+ 	if (!sky1src)
+ 		return -ENOMEM;
+ 
+-	variant = of_device_get_match_data(dev);
 +	sky1src->signals = variant->signals;
 +
 +	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -4057,22 +3949,30 @@ index 0000000000000..0a2871372118b
 +	base = devm_ioremap(dev, res->start, resource_size(res));
 +	if (!base)
 +		return -ENOMEM;
-+
+ 
+-	sky1src->regmap = device_node_to_regmap(dev->of_node);
 +	sky1src->regmap = devm_regmap_init_mmio(dev, base, &config);
-+	if (IS_ERR(sky1src->regmap)) {
+ 	if (IS_ERR(sky1src->regmap)) {
+-		return dev_err_probe(dev, PTR_ERR(sky1src->regmap),
+-				     "Unable to get sky1-src regmap");
 +		dev_err(dev, "Unable to get sky1-src regmap");
 +		return PTR_ERR(sky1src->regmap);
-+	}
-+
-+	sky1src->rcdev.owner     = THIS_MODULE;
-+	sky1src->rcdev.nr_resets = variant->signals_num;
+ 	}
+ 
+-	sky1src->signals = variant->signals;
+ 	sky1src->rcdev.owner     = THIS_MODULE;
+ 	sky1src->rcdev.nr_resets = variant->signals_num;
+-	sky1src->rcdev.ops       = &sky1_src_ops;
 +	sky1src->rcdev.ops       = &variant->ops;
-+	sky1src->rcdev.of_node   = dev->of_node;
-+	sky1src->rcdev.dev       = dev;
-+
-+	return devm_reset_controller_register(dev, &sky1src->rcdev);
-+}
-+
+ 	sky1src->rcdev.of_node   = dev->of_node;
+ 	sky1src->rcdev.dev       = dev;
+ 
+ 	return devm_reset_controller_register(dev, &sky1src->rcdev);
+ }
+ 
+-static const struct of_device_id sky1_sysreg_of_match[] = {
+-	{ .compatible = "cix,sky1-system-control", .data = &variant_sky1_fch},
+-	{ .compatible = "cix,sky1-s5-system-control", .data = &variant_sky1},
 +static const struct of_device_id sky1_reset_dt_ids[] = {
 +	{ .compatible = "cix,sky1-src", .data = &variant_sky1 },
 +	{ .compatible = "cix,sky1-src-fch", .data = &variant_sky1_fch },
@@ -4083,18 +3983,22 @@ index 0000000000000..0a2871372118b
 +static const struct acpi_device_id sky1_reset_acpi_match[] = {
 +	{ "CIXHA020", .driver_data = (kernel_ulong_t)&variant_sky1 },
 +	{ "CIXHA021", .driver_data = (kernel_ulong_t)&variant_sky1_fch },
-+	{},
-+};
+ 	{},
+ };
+-MODULE_DEVICE_TABLE(of, sky1_sysreg_of_match);
 +MODULE_DEVICE_TABLE(acpi, sky1_reset_acpi_match);
-+
-+static struct platform_driver sky1_reset_driver = {
-+	.probe	= sky1_reset_probe,
-+	.driver = {
+ 
+ static struct platform_driver sky1_reset_driver = {
+ 	.probe	= sky1_reset_probe,
+ 	.driver = {
+-		.name		= "cix,sky1-rst",
+-		.of_match_table = sky1_sysreg_of_match,
 +		.name		= KBUILD_MODNAME,
 +		.of_match_table	= sky1_reset_dt_ids,
 +		.acpi_match_table = ACPI_PTR(sky1_reset_acpi_match),
-+	},
-+};
+ 	},
+ };
+-module_platform_driver(sky1_reset_driver)
 +static int __init reset_sky1_init(void)
 +{
 +	return platform_driver_register(&sky1_reset_driver);
@@ -4106,12 +4010,13 @@ index 0000000000000..0a2871372118b
 +	platform_driver_unregister(&sky1_reset_driver);
 +}
 +module_exit(reset_sky1_exit);
-+
-+MODULE_AUTHOR("Jerry Zhu <jerry.zhu@cixtech.com>");
-+MODULE_DESCRIPTION("Cix Sky1 reset driver");
+ 
+ MODULE_AUTHOR("Jerry Zhu <jerry.zhu@cixtech.com>");
+ MODULE_DESCRIPTION("Cix Sky1 reset driver");
+-MODULE_LICENSE("GPL");
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/soc/Kconfig b/drivers/soc/Kconfig
-index a2d65adffb805..a17223668ffe1 100644
+index a2d65adffb80..a17223668ffe 100644
 --- a/drivers/soc/Kconfig
 +++ b/drivers/soc/Kconfig
 @@ -7,6 +7,7 @@ source "drivers/soc/aspeed/Kconfig"
@@ -4123,7 +4028,7 @@ index a2d65adffb805..a17223668ffe1 100644
  source "drivers/soc/fsl/Kconfig"
  source "drivers/soc/fujitsu/Kconfig"
 diff --git a/drivers/soc/Makefile b/drivers/soc/Makefile
-index c9e689080ceb7..22aac89ba0b12 100644
+index c9e689080ceb..22aac89ba0b1 100644
 --- a/drivers/soc/Makefile
 +++ b/drivers/soc/Makefile
 @@ -8,6 +8,7 @@ obj-y				+= aspeed/
@@ -4136,7 +4041,7 @@ index c9e689080ceb7..22aac89ba0b12 100644
  obj-$(CONFIG_MACH_DOVE)		+= dove/
 diff --git a/drivers/soc/cix/Kconfig b/drivers/soc/cix/Kconfig
 new file mode 100644
-index 0000000000000..40c57dde7d53f
+index 000000000000..40c57dde7d53
 --- /dev/null
 +++ b/drivers/soc/cix/Kconfig
 @@ -0,0 +1,46 @@
@@ -4188,7 +4093,7 @@ index 0000000000000..40c57dde7d53f
 +	  will be called cix-bus-perf.
 diff --git a/drivers/soc/cix/Makefile b/drivers/soc/cix/Makefile
 new file mode 100644
-index 0000000000000..2bb69fdaf3354
+index 000000000000..2bb69fdaf335
 --- /dev/null
 +++ b/drivers/soc/cix/Makefile
 @@ -0,0 +1,4 @@
@@ -4198,7 +4103,7 @@ index 0000000000000..2bb69fdaf3354
 +obj-$(CONFIG_CIX_BUS_PERF)	+= cix-bus-perf.o
 diff --git a/drivers/soc/cix/cix-bus-perf.c b/drivers/soc/cix/cix-bus-perf.c
 new file mode 100644
-index 0000000000000..ec82a485dea5d
+index 000000000000..ec82a485dea5
 --- /dev/null
 +++ b/drivers/soc/cix/cix-bus-perf.c
 @@ -0,0 +1,202 @@
@@ -4406,7 +4311,7 @@ index 0000000000000..ec82a485dea5d
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/soc/cix/cix-ddr-lp.c b/drivers/soc/cix/cix-ddr-lp.c
 new file mode 100644
-index 0000000000000..09076f37a11c9
+index 000000000000..09076f37a11c
 --- /dev/null
 +++ b/drivers/soc/cix/cix-ddr-lp.c
 @@ -0,0 +1,172 @@
@@ -4584,7 +4489,7 @@ index 0000000000000..09076f37a11c9
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/soc/cix/sky1-socinfo.c b/drivers/soc/cix/sky1-socinfo.c
 new file mode 100644
-index 0000000000000..6e7dd9a7f036d
+index 000000000000..6e7dd9a7f036
 --- /dev/null
 +++ b/drivers/soc/cix/sky1-socinfo.c
 @@ -0,0 +1,478 @@
@@ -5066,3 +4971,6 @@ index 0000000000000..6e7dd9a7f036d
 +MODULE_AUTHOR("Cix Technology Group Co., Ltd.");
 +MODULE_DESCRIPTION("CIX Sky1 SoC information driver");
 +MODULE_LICENSE("GPL");
+-- 
+2.54.0
+

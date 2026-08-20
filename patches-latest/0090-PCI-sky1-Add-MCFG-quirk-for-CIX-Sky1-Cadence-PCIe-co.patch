@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From e61467ffec0aae26af0d0d5a9916d863e611bc2c Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Sun, 8 Feb 2026 13:10:25 +1100
-Subject: [PATCH] PCI: sky1: Add MCFG quirk for CIX Sky1 Cadence PCIe
+Subject: [PATCH 090/145] PCI: sky1: Add MCFG quirk for CIX Sky1 Cadence PCIe
  controllers
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -31,16 +31,16 @@ link instability — needs further investigation.
  drivers/acpi/pci_mcfg.c                       |   6 +
  drivers/pci/controller/cadence/Makefile       |   1 +
  .../pci/controller/cadence/pci-sky1-acpi.c    | 650 ++++++++++++++++++
- drivers/pci/pci-acpi.c                        | 184 +++++
+ drivers/pci/pci-acpi.c                        | 185 ++++-
  drivers/pci/quirks.c                          |  38 +
  drivers/pci/setup-res.c                       |  23 +-
  drivers/phy/cix/phy-cix-usbdp.c               |   6 +-
  include/linux/pci-ecam.h                      |   1 +
- 8 files changed, 901 insertions(+), 8 deletions(-)
+ 8 files changed, 901 insertions(+), 9 deletions(-)
  create mode 100644 drivers/pci/controller/cadence/pci-sky1-acpi.c
 
 diff --git a/drivers/acpi/pci_mcfg.c b/drivers/acpi/pci_mcfg.c
-index 58e10a9801148..72afd41d40e18 100644
+index 0782a5d839bf..febe1fe55227 100644
 --- a/drivers/acpi/pci_mcfg.c
 +++ b/drivers/acpi/pci_mcfg.c
 @@ -171,6 +171,12 @@ static struct mcfg_fixup mcfg_quirks[] = {
@@ -57,7 +57,7 @@ index 58e10a9801148..72afd41d40e18 100644
  
  #ifdef CONFIG_LOONGARCH
 diff --git a/drivers/pci/controller/cadence/Makefile b/drivers/pci/controller/cadence/Makefile
-index d582dfb8ff5a9..6f9c8459f299f 100644
+index d582dfb8ff5a..6f9c8459f299 100644
 --- a/drivers/pci/controller/cadence/Makefile
 +++ b/drivers/pci/controller/cadence/Makefile
 @@ -7,3 +7,4 @@ obj-$(CONFIG_PCI_J721E) += pci-j721e.o
@@ -67,7 +67,7 @@ index d582dfb8ff5a9..6f9c8459f299f 100644
 +obj-$(CONFIG_PCI_SKY1) += pci-sky1-acpi.o
 diff --git a/drivers/pci/controller/cadence/pci-sky1-acpi.c b/drivers/pci/controller/cadence/pci-sky1-acpi.c
 new file mode 100644
-index 0000000000000..2880b5656c01c
+index 000000000000..2880b5656c01
 --- /dev/null
 +++ b/drivers/pci/controller/cadence/pci-sky1-acpi.c
 @@ -0,0 +1,650 @@
@@ -722,13 +722,14 @@ index 0000000000000..2880b5656c01c
 +
 +#endif /* CONFIG_ACPI && CONFIG_PCI_QUIRKS */
 diff --git a/drivers/pci/pci-acpi.c b/drivers/pci/pci-acpi.c
-index 0162acfb57896..423efb06fc608 100644
+index 4d0f2cb6c695..7823ef26483d 100644
 --- a/drivers/pci/pci-acpi.c
 +++ b/drivers/pci/pci-acpi.c
-@@ -9,8 +9,10 @@
+@@ -9,9 +9,10 @@
  
  #include <linux/delay.h>
  #include <linux/init.h>
+-#include <linux/iommu.h>
 +#include <linux/io.h>
  #include <linux/irqdomain.h>
  #include <linux/pci.h>
@@ -736,7 +737,7 @@ index 0162acfb57896..423efb06fc608 100644
  #include <linux/msi.h>
  #include <linux/pci_hotplug.h>
  #include <linux/module.h>
-@@ -1585,6 +1587,185 @@ int pcibios_root_bridge_prepare(struct pci_host_bridge *bridge)
+@@ -1591,6 +1592,185 @@ int pcibios_root_bridge_prepare(struct pci_host_bridge *bridge)
  	return 0;
  }
  
@@ -922,7 +923,7 @@ index 0162acfb57896..423efb06fc608 100644
  static int pci_acpi_root_prepare_resources(struct acpi_pci_root_info *ci)
  {
  	struct resource_entry *entry, *tmp;
-@@ -1595,6 +1776,9 @@ static int pci_acpi_root_prepare_resources(struct acpi_pci_root_info *ci)
+@@ -1601,6 +1781,9 @@ static int pci_acpi_root_prepare_resources(struct acpi_pci_root_info *ci)
  		if (!(entry->res->flags & IORESOURCE_WINDOW))
  			resource_list_destroy_entry(entry);
  	}
@@ -933,10 +934,10 @@ index 0162acfb57896..423efb06fc608 100644
  }
  
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index 0ea6686f5b5ab..0d6e907b969c8 100644
+index ed738f9a805b..2305d42aaa82 100644
 --- a/drivers/pci/quirks.c
 +++ b/drivers/pci/quirks.c
-@@ -6370,3 +6370,41 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
+@@ -6440,3 +6440,41 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9750, pci_mask_replay_timer_timeout);
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9755, pci_mask_replay_timer_timeout);
  #endif
@@ -979,10 +980,10 @@ index 0ea6686f5b5ab..0d6e907b969c8 100644
 +DECLARE_PCI_FIXUP_FINAL(PCI_ANY_ID, PCI_ANY_ID,
 +			quirk_cadence_endpoint_no_d3);
 diff --git a/drivers/pci/setup-res.c b/drivers/pci/setup-res.c
-index 7d65d33de1dfe..8a6e5513cc64e 100644
+index f180a7945bd0..bc05a76b0a28 100644
 --- a/drivers/pci/setup-res.c
 +++ b/drivers/pci/setup-res.c
-@@ -325,15 +325,28 @@ static int _pci_assign_resource(struct pci_dev *dev, int resno,
+@@ -379,15 +379,28 @@ static int _pci_assign_resource(struct pci_dev *dev, int resno,
   * Check whether I/O port assignment failures are expected because the
   * host bridge has no I/O windows at all (common on ARM64/RISC-V where
   * PCI I/O is optional and many bridges don't support I/O forwarding).
@@ -1014,7 +1015,7 @@ index 7d65d33de1dfe..8a6e5513cc64e 100644
  	bridge = pci_find_host_bridge(dev->bus);
  	resource_list_for_each_entry(entry, &bridge->windows)
  		if (entry->res->flags & IORESOURCE_IO)
-@@ -369,7 +382,7 @@ int pci_assign_resource(struct pci_dev *dev, int resno)
+@@ -423,7 +436,7 @@ int pci_assign_resource(struct pci_dev *dev, int resno)
  	 * working, which is better than just leaving it disabled.
  	 */
  	if (ret < 0) {
@@ -1023,7 +1024,7 @@ index 7d65d33de1dfe..8a6e5513cc64e 100644
  			pci_dbg(dev, "%s %pR: can't assign; no space\n",
  				res_name, res);
  		else
-@@ -379,7 +392,7 @@ int pci_assign_resource(struct pci_dev *dev, int resno)
+@@ -433,7 +446,7 @@ int pci_assign_resource(struct pci_dev *dev, int resno)
  	}
  
  	if (ret < 0) {
@@ -1033,7 +1034,7 @@ index 7d65d33de1dfe..8a6e5513cc64e 100644
  				res_name, res);
  		else
 diff --git a/drivers/phy/cix/phy-cix-usbdp.c b/drivers/phy/cix/phy-cix-usbdp.c
-index 9b1eb5afe3a6a..700696ed018a9 100644
+index 9b1eb5afe3a6..700696ed018a 100644
 --- a/drivers/phy/cix/phy-cix-usbdp.c
 +++ b/drivers/phy/cix/phy-cix-usbdp.c
 @@ -1424,7 +1424,7 @@ static int cix_udphy_probe(struct platform_device *pdev)
@@ -1065,7 +1066,7 @@ index 9b1eb5afe3a6a..700696ed018a9 100644
  		dev_info(dev, "phy reset\n");
  		reset_control_assert(udphy->reset);
 diff --git a/include/linux/pci-ecam.h b/include/linux/pci-ecam.h
-index d930651473b4d..4b2bb1bb3fa9c 100644
+index d930651473b4..4b2bb1bb3fa9 100644
 --- a/include/linux/pci-ecam.h
 +++ b/include/linux/pci-ecam.h
 @@ -92,5 +92,6 @@ extern const struct pci_ecam_ops xgene_v2_pcie_ecam_ops; /* APM X-Gene PCIe v2.x
@@ -1075,3 +1076,6 @@ index d930651473b4d..4b2bb1bb3fa9c 100644
 +extern const struct pci_ecam_ops sky1_pcie_ecam_ops; /* CIX Sky1 Cadence PCIe */
  #endif
  #endif
+-- 
+2.54.0
+

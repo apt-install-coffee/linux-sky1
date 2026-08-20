@@ -1,8 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 07d4ace97fc1b181f37e43477fde40c23e244901 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Thu, 5 Feb 2026 21:48:21 +1100
-Subject: [PATCH] drm: cix: dptx: Fix suspend/resume deadlock and improve PM
- handling
+Subject: [PATCH 044/145] drm: cix: dptx: Fix suspend/resume deadlock and
+ improve PM handling
 
 Fix a potential deadlock in trilin_dp_pm_prepare() where the session_lock
 mutex was held while calling cancel_delayed_work_sync(). If the HPD work
@@ -31,7 +31,7 @@ handling and prevent races during system sleep transitions.
  3 files changed, 107 insertions(+), 9 deletions(-)
 
 diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx.c b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
-index dfd5b3dd49cc4..25429b641b84f 100644
+index dfd5b3dd49cc..25429b641b84 100644
 --- a/drivers/gpu/drm/cix/dptx/trilin_dptx.c
 +++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
 @@ -16,10 +16,14 @@
@@ -147,7 +147,7 @@ index dfd5b3dd49cc4..25429b641b84f 100644
  	return 0;
  }
 diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx.h b/drivers/gpu/drm/cix/dptx/trilin_dptx.h
-index c14384ada4229..9531232a42583 100644
+index c14384ada422..9531232a4258 100644
 --- a/drivers/gpu/drm/cix/dptx/trilin_dptx.h
 +++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.h
 @@ -569,6 +569,7 @@ void trilin_dp_connector_debugfs_init(struct drm_connector *connector,
@@ -159,7 +159,7 @@ index c14384ada4229..9531232a42583 100644
  int trilin_dp_hpd_config_cb(struct trilin_dp *dp);
  int trilin_dp_deinit_config(struct trilin_dp *dp);
 diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx_cix.c b/drivers/gpu/drm/cix/dptx/trilin_dptx_cix.c
-index 4eacfdd27060a..57b9c30246dfc 100644
+index 4eacfdd27060..57b9c30246df 100644
 --- a/drivers/gpu/drm/cix/dptx/trilin_dptx_cix.c
 +++ b/drivers/gpu/drm/cix/dptx/trilin_dptx_cix.c
 @@ -339,7 +339,12 @@ static void trilin_dptx_cix_remove(struct platform_device *pdev)
@@ -222,3 +222,6 @@ index 4eacfdd27060a..57b9c30246dfc 100644
  };
  #endif
  
+-- 
+2.54.0
+

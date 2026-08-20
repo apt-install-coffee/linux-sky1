@@ -1,8 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 313f55589a298b6a888fbf936ec8a888be9a4b70 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Thu, 5 Feb 2026 09:41:18 +1100
-Subject: [PATCH] arm64: dts: cix: Add missing DPU SIDs and enable GOP RMR from
- IORT
+Subject: [PATCH 037/145] arm64: dts: cix: Add missing DPU SIDs and enable GOP
+ RMR from IORT
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -25,7 +25,7 @@ IORT source: hw-extract-o6-acpi/acpi/IORT (decompiled with iasl)
  1 file changed, 18 insertions(+), 17 deletions(-)
 
 diff --git a/arch/arm64/boot/dts/cix/sky1.dtsi b/arch/arm64/boot/dts/cix/sky1.dtsi
-index 3eaca2bee81e6..e21458f9f4810 100644
+index 3eaca2bee81e..e21458f9f481 100644
 --- a/arch/arm64/boot/dts/cix/sky1.dtsi
 +++ b/arch/arm64/boot/dts/cix/sky1.dtsi
 @@ -496,13 +496,12 @@ linux,cma {
@@ -150,3 +150,6 @@ index 3eaca2bee81e6..e21458f9f4810 100644
  			enabled_by_gop = <0>;
  			status = "disabled";
  
+-- 
+2.54.0
+

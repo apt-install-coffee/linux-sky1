@@ -1,8 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 8d363e7bcdc8df041c6a95deccc317a9fc37ef60 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Sun, 8 Feb 2026 21:44:46 +1100
-Subject: [PATCH] PCI: sky1: Switch ACPI from MCFG quirk to vendor scan handler
- approach
+Subject: [PATCH 091/145] PCI: sky1: Switch ACPI from MCFG quirk to vendor scan
+ handler approach
 
 Replace the MCFG quirk + companion driver approach with the vendor
 kernel's pattern: block PNP0A08 root bridges with an ACPI scan handler
@@ -49,7 +49,7 @@ Supporting changes:
  create mode 100644 drivers/pci/controller/cadence/pci-sky1-acpi.h
 
 diff --git a/drivers/acpi/acpi_platform.c b/drivers/acpi/acpi_platform.c
-index 7631935ba2ae4..48d15dd785f6e 100644
+index 419761e0b68d..a09636a4168e 100644
 --- a/drivers/acpi/acpi_platform.c
 +++ b/drivers/acpi/acpi_platform.c
 @@ -30,7 +30,6 @@ static const struct acpi_device_id forbidden_id_list[] = {
@@ -61,7 +61,7 @@ index 7631935ba2ae4..48d15dd785f6e 100644
  };
  
 diff --git a/drivers/acpi/pci_mcfg.c b/drivers/acpi/pci_mcfg.c
-index 72afd41d40e18..ba15d227b435b 100644
+index febe1fe55227..b6f88b50a484 100644
 --- a/drivers/acpi/pci_mcfg.c
 +++ b/drivers/acpi/pci_mcfg.c
 @@ -172,11 +172,6 @@ static struct mcfg_fixup mcfg_quirks[] = {
@@ -77,7 +77,7 @@ index 72afd41d40e18..ba15d227b435b 100644
  
  #ifdef CONFIG_LOONGARCH
 diff --git a/drivers/pci/controller/cadence/pci-sky1-acpi.c b/drivers/pci/controller/cadence/pci-sky1-acpi.c
-index 2880b5656c01c..4e3d879a47261 100644
+index 2880b5656c01..4e3d879a4726 100644
 --- a/drivers/pci/controller/cadence/pci-sky1-acpi.c
 +++ b/drivers/pci/controller/cadence/pci-sky1-acpi.c
 @@ -1,650 +1,176 @@
@@ -854,7 +854,7 @@ index 2880b5656c01c..4e3d879a47261 100644
 +#endif /* CONFIG_ACPI */
 diff --git a/drivers/pci/controller/cadence/pci-sky1-acpi.h b/drivers/pci/controller/cadence/pci-sky1-acpi.h
 new file mode 100644
-index 0000000000000..2e4869c78e8cf
+index 000000000000..2e4869c78e8c
 --- /dev/null
 +++ b/drivers/pci/controller/cadence/pci-sky1-acpi.h
 @@ -0,0 +1,18 @@
@@ -877,7 +877,7 @@ index 0000000000000..2e4869c78e8cf
 +
 +#endif /* _PCIE_SKY1_ACPI_H */
 diff --git a/drivers/pci/controller/cadence/pci-sky1.c b/drivers/pci/controller/cadence/pci-sky1.c
-index 1e76d5b12115b..6db46657df989 100644
+index 1e76d5b12115..6db46657df98 100644
 --- a/drivers/pci/controller/cadence/pci-sky1.c
 +++ b/drivers/pci/controller/cadence/pci-sky1.c
 @@ -27,6 +27,7 @@
@@ -1143,10 +1143,10 @@ index 1e76d5b12115b..6db46657df989 100644
  	if (!pcie)
  		return -ENOMEM;
 diff --git a/drivers/pci/pci-acpi.c b/drivers/pci/pci-acpi.c
-index 423efb06fc608..6b6f2c6796198 100644
+index 7823ef26483d..eff8377549fd 100644
 --- a/drivers/pci/pci-acpi.c
 +++ b/drivers/pci/pci-acpi.c
-@@ -1587,185 +1587,6 @@ int pcibios_root_bridge_prepare(struct pci_host_bridge *bridge)
+@@ -1592,185 +1592,6 @@ int pcibios_root_bridge_prepare(struct pci_host_bridge *bridge)
  	return 0;
  }
  
@@ -1332,7 +1332,7 @@ index 423efb06fc608..6b6f2c6796198 100644
  static int pci_acpi_root_prepare_resources(struct acpi_pci_root_info *ci)
  {
  	struct resource_entry *entry, *tmp;
-@@ -1777,8 +1598,6 @@ static int pci_acpi_root_prepare_resources(struct acpi_pci_root_info *ci)
+@@ -1782,8 +1603,6 @@ static int pci_acpi_root_prepare_resources(struct acpi_pci_root_info *ci)
  			resource_list_destroy_entry(entry);
  	}
  
@@ -1342,7 +1342,7 @@ index 423efb06fc608..6b6f2c6796198 100644
  }
  
 diff --git a/drivers/phy/cix/phy-cix-pcie.c b/drivers/phy/cix/phy-cix-pcie.c
-index 21115f2204b6d..f0f5eba470cac 100644
+index 21115f2204b6..f0f5eba470ca 100644
 --- a/drivers/phy/cix/phy-cix-pcie.c
 +++ b/drivers/phy/cix/phy-cix-pcie.c
 @@ -587,10 +587,16 @@ static int cix_pcie_phy_probe(struct platform_device *pdev)
@@ -1367,7 +1367,7 @@ index 21115f2204b6d..f0f5eba470cac 100644
  
  	return 0;
 diff --git a/drivers/pinctrl/cix/pinctrl-sky1-base.c b/drivers/pinctrl/cix/pinctrl-sky1-base.c
-index 7efd50ce8a04a..e2c2a7cb816bd 100644
+index 7efd50ce8a04..e2c2a7cb816b 100644
 --- a/drivers/pinctrl/cix/pinctrl-sky1-base.c
 +++ b/drivers/pinctrl/cix/pinctrl-sky1-base.c
 @@ -5,9 +5,7 @@
@@ -1416,7 +1416,7 @@ index 7efd50ce8a04a..e2c2a7cb816bd 100644
  	dev_info(&pdev->dev, "initialized SKY1 pinctrl driver\n");
  
 diff --git a/include/linux/pci-ecam.h b/include/linux/pci-ecam.h
-index 4b2bb1bb3fa9c..d930651473b4d 100644
+index 4b2bb1bb3fa9..d930651473b4 100644
 --- a/include/linux/pci-ecam.h
 +++ b/include/linux/pci-ecam.h
 @@ -92,6 +92,5 @@ extern const struct pci_ecam_ops xgene_v2_pcie_ecam_ops; /* APM X-Gene PCIe v2.x
@@ -1426,3 +1426,6 @@ index 4b2bb1bb3fa9c..d930651473b4d 100644
 -extern const struct pci_ecam_ops sky1_pcie_ecam_ops; /* CIX Sky1 Cadence PCIe */
  #endif
  #endif
+-- 
+2.54.0
+

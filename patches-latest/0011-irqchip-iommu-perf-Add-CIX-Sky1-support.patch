@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 5fddd8a5cdf098356d02513c3b2ae0a48c0eb30c Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Sun, 1 Feb 2026 01:20:21 +1100
-Subject: [PATCH] irqchip: iommu: perf: Add CIX Sky1 support
+Subject: [PATCH 011/145] irqchip: iommu: perf: Add CIX Sky1 support
 
 Add Sky1 Power Domain Controller (PDC) wakeup interrupt driver.
 Add GIC-v3 single-redistributor topology support for Sky1. Add
@@ -20,10 +20,10 @@ big.LITTLE configurations.
  create mode 100644 drivers/irqchip/irq-sky1-pdc.c
 
 diff --git a/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c b/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c
-index d16d35c78c068..693d237892e98 100644
+index a10affb483a4..72144c3e9fdf 100644
 --- a/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c
 +++ b/drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.c
-@@ -4653,6 +4653,43 @@ static void __iomem *arm_smmu_ioremap(struct device *dev, resource_size_t start,
+@@ -5314,6 +5314,43 @@ static void __iomem *arm_smmu_ioremap(struct device *dev, resource_size_t start,
  	return devm_ioremap_resource(dev, &res);
  }
  
@@ -67,7 +67,7 @@ index d16d35c78c068..693d237892e98 100644
  static void arm_smmu_rmr_install_bypass_ste(struct arm_smmu_device *smmu)
  {
  	struct list_head rmr_list;
-@@ -4819,6 +4856,9 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
+@@ -5480,6 +5517,9 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
  	/* Check for RMRs and install bypass STEs if any */
  	arm_smmu_rmr_install_bypass_ste(smmu);
  
@@ -78,10 +78,10 @@ index d16d35c78c068..693d237892e98 100644
  	ret = arm_smmu_device_reset(smmu);
  	if (ret)
 diff --git a/drivers/irqchip/Kconfig b/drivers/irqchip/Kconfig
-index f334f49c9791f..751e8b27fee9e 100644
+index 42f2278a702d..9616b1965168 100644
 --- a/drivers/irqchip/Kconfig
 +++ b/drivers/irqchip/Kconfig
-@@ -412,6 +412,14 @@ config IMX_GPCV2
+@@ -440,6 +440,14 @@ config IMX_GPCV2
  	help
  	  Enables the wakeup IRQs for IMX platforms with GPCv2 block
  
@@ -97,7 +97,7 @@ index f334f49c9791f..751e8b27fee9e 100644
  	def_bool y if MACH_ASM9260 || ARCH_MXS
  	select IRQ_DOMAIN
 diff --git a/drivers/irqchip/Makefile b/drivers/irqchip/Makefile
-index 6a229443efe08..58c0ccfbf5183 100644
+index 74912429c59f..a82e4adfa342 100644
 --- a/drivers/irqchip/Makefile
 +++ b/drivers/irqchip/Makefile
 @@ -85,7 +85,8 @@ obj-$(CONFIG_MVEBU_GICP)		+= irq-mvebu-gicp.o
@@ -109,12 +109,12 @@ index 6a229443efe08..58c0ccfbf5183 100644
 +obj-$(CONFIG_SKY1_PDC)			+= irq-sky1-pdc.o
  obj-$(CONFIG_LS_EXTIRQ)			+= irq-ls-extirq.o
  obj-$(CONFIG_LS_SCFG_MSI)		+= irq-ls-scfg-msi.o
- obj-$(CONFIG_ARCH_ASPEED)		+= irq-aspeed-vic.o irq-aspeed-i2c-ic.o irq-aspeed-scu-ic.o
+ obj-$(CONFIG_ASPEED_AST2700_INTC)	+= irq-ast2700.o irq-ast2700-intc0.o irq-ast2700-intc1.o
 diff --git a/drivers/irqchip/irq-gic-v3.c b/drivers/irqchip/irq-gic-v3.c
-index 6607ab58f72e6..e96fbf86ca9f9 100644
+index 99444a1b2ffa..8df3495262a3 100644
 --- a/drivers/irqchip/irq-gic-v3.c
 +++ b/drivers/irqchip/irq-gic-v3.c
-@@ -2200,6 +2200,7 @@ static int __init gic_of_init(struct device_node *node, struct device_node *pare
+@@ -2208,6 +2208,7 @@ static int __init gic_of_init(struct device_node *node, struct device_node *pare
  	u64 redist_stride;
  	u32 nr_redist_regions;
  	int err, i;
@@ -122,7 +122,7 @@ index 6607ab58f72e6..e96fbf86ca9f9 100644
  
  	dist_base = gic_of_iomap(node, 0, "GICD", &res);
  	if (IS_ERR(dist_base)) {
-@@ -2225,6 +2226,9 @@ static int __init gic_of_init(struct device_node *node, struct device_node *pare
+@@ -2232,6 +2233,9 @@ static int __init gic_of_init(struct device_node *node, struct device_node *pare
  		goto out_unmap_dist;
  	}
  
@@ -132,7 +132,7 @@ index 6607ab58f72e6..e96fbf86ca9f9 100644
  	for (i = 0; i < nr_redist_regions; i++) {
  		rdist_regs[i].redist_base = gic_of_iomap(node, 1 + i, "GICR", &res);
  		if (IS_ERR(rdist_regs[i].redist_base)) {
-@@ -2233,6 +2237,7 @@ static int __init gic_of_init(struct device_node *node, struct device_node *pare
+@@ -2240,6 +2244,7 @@ static int __init gic_of_init(struct device_node *node, struct device_node *pare
  			goto out_unmap_rdist;
  		}
  		rdist_regs[i].phys_base = res.start;
@@ -142,7 +142,7 @@ index 6607ab58f72e6..e96fbf86ca9f9 100644
  	if (of_property_read_u64(node, "redistributor-stride", &redist_stride))
 diff --git a/drivers/irqchip/irq-sky1-pdc.c b/drivers/irqchip/irq-sky1-pdc.c
 new file mode 100644
-index 0000000000000..ed14b3309989c
+index 000000000000..ed14b3309989
 --- /dev/null
 +++ b/drivers/irqchip/irq-sky1-pdc.c
 @@ -0,0 +1,274 @@
@@ -421,7 +421,7 @@ index 0000000000000..ed14b3309989c
 +MODULE_DESCRIPTION("Cix Sky1 irq pdc driver");
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/perf/arm_spe_pmu.c b/drivers/perf/arm_spe_pmu.c
-index 5410fb7428d0e..87db87ecc38ea 100644
+index dbd0da111639..ae738ef181cf 100644
 --- a/drivers/perf/arm_spe_pmu.c
 +++ b/drivers/perf/arm_spe_pmu.c
 @@ -1234,6 +1234,15 @@ static void __arm_spe_pmu_dev_probe(void *info)
@@ -462,3 +462,6 @@ index 5410fb7428d0e..87db87ecc38ea 100644
  	disable_percpu_irq(spe_pmu->irq);
  	__arm_spe_pmu_reset_local();
  }
+-- 
+2.54.0
+

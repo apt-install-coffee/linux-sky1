@@ -138,3 +138,8 @@
 0138-drm-cix-dptx-properly-disable-audio-hardware-on-shut.patch
 0139-drm-cix-dptx-suppress-spurious-ELD-warnings-at-boot.patch
 0140-cix-remove-pre-silicon-EMU-FPGA-dead-code-from-vendo.patch
+0141-v7.2-drop-fork-subsystems-now-superseded-by-mainline.patch
+0142-v7.2-make-Cadence-PCIe-headers-self-consistent-for-S.patch
+0143-v7.2-adapt-Sky1-platform-drivers-to-updated-kernel-A.patch
+0144-v7.2-re-apply-CIX-Sky1-audio-quirk-onto-mainline-alc.patch
+0145-v7.2-port-Sky1-DRM-display-stack-to-updated-DRM-APIs.patch

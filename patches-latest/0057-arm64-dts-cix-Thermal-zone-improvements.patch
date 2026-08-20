@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From b475cf17b5a89599cafaaed8c3df4e982afac574 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Thu, 5 Feb 2026 23:40:51 +1100
-Subject: [PATCH] arm64: dts: cix: Thermal zone improvements
+Subject: [PATCH 057/145] arm64: dts: cix: Thermal zone improvements
 
 - Rename thermal zones to tz-* pattern for clarity and <20 char limit
 - Add switch_on trip point (60C) to prevent IPA governor from
@@ -14,7 +14,7 @@ Subject: [PATCH] arm64: dts: cix: Thermal zone improvements
  3 files changed, 64 insertions(+), 19 deletions(-)
 
 diff --git a/arch/arm64/boot/dts/cix/sky1-orion-o6.dts b/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
-index e8b88ad4577ae..bf58ffe54507d 100644
+index e8b88ad4577a..bf58ffe54507 100644
 --- a/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
 +++ b/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
 @@ -2340,7 +2340,7 @@ &ddr_ctrl3 {
@@ -54,7 +54,7 @@ index e8b88ad4577ae..bf58ffe54507d 100644
  		polling-delay = <1000>;
  		thermal-sensors = <&scmi_sensor CPU_B0_TEMP_SENSOR_ID>;
 diff --git a/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts b/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts
-index 443c29753432b..2da7eaef4b479 100644
+index 443c29753432..2da7eaef4b47 100644
 --- a/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts
 +++ b/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts
 @@ -2374,7 +2374,7 @@ &ddr_ctrl3 {
@@ -94,7 +94,7 @@ index 443c29753432b..2da7eaef4b479 100644
  		polling-delay = <1000>;
  		thermal-sensors = <&scmi_sensor CPU_B0_TEMP_SENSOR_ID>;
 diff --git a/arch/arm64/boot/dts/cix/sky1.dtsi b/arch/arm64/boot/dts/cix/sky1.dtsi
-index e912f40d6bfeb..cb33685f4ce8f 100644
+index e912f40d6bfe..cb33685f4ce8 100644
 --- a/arch/arm64/boot/dts/cix/sky1.dtsi
 +++ b/arch/arm64/boot/dts/cix/sky1.dtsi
 @@ -3109,7 +3109,7 @@ power_model@0 {
@@ -295,3 +295,6 @@ index e912f40d6bfeb..cb33685f4ce8f 100644
  			polling-delay-passive = <100>;
  			polling-delay = <1000>;
  			thermal-sensors = <&scmi_sensor GPU_AVERAGE_TEMP_SENSOR_ID>;
+-- 
+2.54.0
+

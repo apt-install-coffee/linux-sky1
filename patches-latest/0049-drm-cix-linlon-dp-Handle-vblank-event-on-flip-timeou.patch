@@ -1,7 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 0cda15b37c755c0f16cdfecfec7c8cb480b5ca72 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Thu, 5 Feb 2026 22:51:33 +1100
-Subject: [PATCH] drm: cix: linlon-dp: Handle vblank event on flip timeout
+Subject: [PATCH 049/145] drm: cix: linlon-dp: Handle vblank event on flip
+ timeout
 
 Port fix from CIX 6.6.89 to handle flip timeout more gracefully:
 
@@ -19,7 +20,7 @@ completion is not signaled properly.
  3 files changed, 27 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c b/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c
-index 8855898d4c84b..2de8eeea3e5cf 100644
+index 8855898d4c84..2de8eeea3e5c 100644
 --- a/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c
 +++ b/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c
 @@ -307,6 +307,14 @@ static void dp_flush(struct linlondp_dev *mdev, int master_pipe,
@@ -46,7 +47,7 @@ index 8855898d4c84b..2de8eeea3e5cf 100644
  
  const struct linlondp_dev_funcs *dp_identify(u32 __iomem *reg_base,
 diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c
-index c4d69e0c1da88..0080c27049479 100644
+index c4d69e0c1da8..0080c2704947 100644
 --- a/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c
 +++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c
 @@ -467,16 +467,29 @@ void linlondp_crtc_flush_and_wait_for_flip_done(
@@ -82,7 +83,7 @@ index c4d69e0c1da88..0080c27049479 100644
  	}
  }
 diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.h b/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.h
-index feb3f75634726..5cccc208f21b8 100644
+index feb3f7563472..5cccc208f21b 100644
 --- a/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.h
 +++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_dev.h
 @@ -158,6 +158,9 @@ struct linlondp_dev_funcs {
@@ -95,3 +96,6 @@ index feb3f75634726..5cccc208f21b8 100644
  };
  
  /*
+-- 
+2.54.0
+

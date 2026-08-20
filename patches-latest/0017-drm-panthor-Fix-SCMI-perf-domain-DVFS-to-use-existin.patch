@@ -1,8 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 90ce9f5a52f37bd3faee570d3d84d1485044b941 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Mon, 2 Feb 2026 01:42:30 +1100
-Subject: [PATCH] drm/panthor: Fix SCMI perf domain DVFS to use existing
- virtual device
+Subject: [PATCH 017/145] drm/panthor: Fix SCMI perf domain DVFS to use
+ existing virtual device
 
 The previous SCMI DVFS code used dev_pm_domain_attach_by_name() to
 create a new virtual device for the "perf" power domain. This fails
@@ -27,7 +27,7 @@ manage both frequency and voltage together.
  3 files changed, 105 insertions(+), 68 deletions(-)
 
 diff --git a/drivers/gpu/drm/panthor/panthor_devfreq.c b/drivers/gpu/drm/panthor/panthor_devfreq.c
-index c8a47aa3b77e5..7a632f9161485 100644
+index c8a47aa3b77e..7a632f916148 100644
 --- a/drivers/gpu/drm/panthor/panthor_devfreq.c
 +++ b/drivers/gpu/drm/panthor/panthor_devfreq.c
 @@ -4,8 +4,8 @@
@@ -157,10 +157,10 @@ index c8a47aa3b77e5..7a632f9161485 100644
  	drm_info(&ptdev->base,
  		 "GPU DVFS: %d OPPs from SCMI perf domain\n", i);
 diff --git a/drivers/gpu/drm/panthor/panthor_device.c b/drivers/gpu/drm/panthor/panthor_device.c
-index 1d87de71f2c1b..18c5802958487 100644
+index e23d130cb1e3..cc5710c6d582 100644
 --- a/drivers/gpu/drm/panthor/panthor_device.c
 +++ b/drivers/gpu/drm/panthor/panthor_device.c
-@@ -92,14 +92,69 @@ static int panthor_clk_init(struct panthor_device *ptdev)
+@@ -76,14 +76,69 @@ static int panthor_clk_init(struct panthor_device *ptdev)
  	return 0;
  }
  
@@ -234,7 +234,7 @@ index 1d87de71f2c1b..18c5802958487 100644
  }
  
  static int panthor_resets_init(struct panthor_device *ptdev)
-@@ -269,19 +324,17 @@ int panthor_device_init(struct panthor_device *ptdev)
+@@ -258,19 +313,17 @@ int panthor_device_init(struct panthor_device *ptdev)
  	if (ret)
  		return ret;
  
@@ -258,7 +258,7 @@ index 1d87de71f2c1b..18c5802958487 100644
  
  	/* Sky1 uses resource 0 for RCSU, resource 1 for GPU registers.
  	 * Other platforms use resource 0 for GPU registers.
-@@ -289,29 +342,35 @@ int panthor_device_init(struct panthor_device *ptdev)
+@@ -278,29 +331,35 @@ int panthor_device_init(struct panthor_device *ptdev)
  	if (of_device_is_compatible(ptdev->base.dev->of_node, "arm,mali-valhall")) {
  		ptdev->iomem = devm_platform_get_and_ioremap_resource(
  				to_platform_device(ptdev->base.dev), 1, &res);
@@ -302,7 +302,7 @@ index 1d87de71f2c1b..18c5802958487 100644
  
  	/* If PM is disabled, we need to call panthor_device_resume() manually. */
  	if (!IS_ENABLED(CONFIG_PM)) {
-@@ -415,6 +474,9 @@ int panthor_device_init(struct panthor_device *ptdev)
+@@ -416,6 +475,9 @@ int panthor_device_init(struct panthor_device *ptdev)
  
  err_rpm_put:
  	pm_runtime_put_sync_suspend(ptdev->base.dev);
@@ -313,10 +313,10 @@ index 1d87de71f2c1b..18c5802958487 100644
  }
  
 diff --git a/drivers/gpu/drm/panthor/panthor_device.h b/drivers/gpu/drm/panthor/panthor_device.h
-index 22aca55e58ea0..cfdef628e0d39 100644
+index f4843a19a128..4599f41fa1fc 100644
 --- a/drivers/gpu/drm/panthor/panthor_device.h
 +++ b/drivers/gpu/drm/panthor/panthor_device.h
-@@ -118,6 +118,12 @@ struct panthor_device {
+@@ -143,6 +143,12 @@ struct panthor_device {
  	/** @sky1_rcsu_reg: Sky1 RCSU register mapping (optional). */
  	void __iomem *sky1_rcsu_reg;
  
@@ -329,3 +329,6 @@ index 22aca55e58ea0..cfdef628e0d39 100644
  	/** @gpu_reset: Reset control for GPU (optional, Sky1). */
  	struct reset_control *gpu_reset;
  
+-- 
+2.54.0
+

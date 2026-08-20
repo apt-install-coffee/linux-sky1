@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From a0858a743fc8ae041703755930dd132dac609aa9 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Thu, 5 Feb 2026 23:12:39 +1100
-Subject: [PATCH] drm/panthor: Add ACPI support
+Subject: [PATCH 053/145] drm/panthor: Add ACPI support
 
 Add ACPI device table (CIXH5000) for Sky1 GPU and handle IRQ lookup
 differences between ACPI and DT modes:
@@ -19,7 +19,7 @@ with mainline device tree bindings.
  5 files changed, 40 insertions(+), 18 deletions(-)
 
 diff --git a/drivers/gpu/drm/panthor/panthor_device.h b/drivers/gpu/drm/panthor/panthor_device.h
-index cfdef628e0d39..75817ca820a81 100644
+index 4599f41fa1fc..d0a82bda542a 100644
 --- a/drivers/gpu/drm/panthor/panthor_device.h
 +++ b/drivers/gpu/drm/panthor/panthor_device.h
 @@ -6,6 +6,7 @@
@@ -31,10 +31,10 @@ index cfdef628e0d39..75817ca820a81 100644
  #include <linux/io-pgtable.h>
  #include <linux/regulator/consumer.h>
 diff --git a/drivers/gpu/drm/panthor/panthor_drv.c b/drivers/gpu/drm/panthor/panthor_drv.c
-index 72c69a94dd9ec..3febf3b9da9ae 100644
+index b358b1333376..a65450087936 100644
 --- a/drivers/gpu/drm/panthor/panthor_drv.c
 +++ b/drivers/gpu/drm/panthor/panthor_drv.c
-@@ -1699,6 +1699,14 @@ static const struct of_device_id dt_match[] = {
+@@ -1880,6 +1880,14 @@ static const struct of_device_id dt_match[] = {
  };
  MODULE_DEVICE_TABLE(of, dt_match);
  
@@ -49,7 +49,7 @@ index 72c69a94dd9ec..3febf3b9da9ae 100644
  static DEFINE_RUNTIME_DEV_PM_OPS(panthor_pm_ops,
  				 panthor_device_suspend,
  				 panthor_device_resume,
-@@ -1711,6 +1719,7 @@ static struct platform_driver panthor_driver = {
+@@ -1892,6 +1900,7 @@ static struct platform_driver panthor_driver = {
  		.name = "panthor",
  		.pm = pm_ptr(&panthor_pm_ops),
  		.of_match_table = dt_match,
@@ -58,10 +58,10 @@ index 72c69a94dd9ec..3febf3b9da9ae 100644
  	},
  };
 diff --git a/drivers/gpu/drm/panthor/panthor_fw.c b/drivers/gpu/drm/panthor/panthor_fw.c
-index 8e017bb73e209..5ecf72eb99dc7 100644
+index 12ef4cedf7cf..6055a2fe66d8 100644
 --- a/drivers/gpu/drm/panthor/panthor_fw.c
 +++ b/drivers/gpu/drm/panthor/panthor_fw.c
-@@ -1444,13 +1444,17 @@ int panthor_fw_init(struct panthor_device *ptdev)
+@@ -1493,13 +1493,17 @@ int panthor_fw_init(struct panthor_device *ptdev)
  	INIT_LIST_HEAD(&fw->sections);
  	INIT_DELAYED_WORK(&fw->watchdog.ping_work, panthor_fw_ping_work);
  
@@ -83,13 +83,13 @@ index 8e017bb73e209..5ecf72eb99dc7 100644
 +	if (irq <= 0)
 +		return -ENODEV;
  
- 	ret = panthor_request_job_irq(ptdev, &fw->irq, irq, 0);
- 	if (ret) {
+ 	ret = panthor_request_job_irq(ptdev, &fw->irq, irq,
+ 				      ptdev->iomem + JOB_INT_BASE);
 diff --git a/drivers/gpu/drm/panthor/panthor_gpu.c b/drivers/gpu/drm/panthor/panthor_gpu.c
-index 5f2e355502072..a290a5895de0d 100644
+index 6868cc160498..32eb5cdb1c8f 100644
 --- a/drivers/gpu/drm/panthor/panthor_gpu.c
 +++ b/drivers/gpu/drm/panthor/panthor_gpu.c
-@@ -147,13 +147,17 @@ int panthor_gpu_init(struct panthor_device *ptdev)
+@@ -166,13 +166,17 @@ int panthor_gpu_init(struct panthor_device *ptdev)
  	if (ret)
  		return ret;
  
@@ -111,14 +111,14 @@ index 5f2e355502072..a290a5895de0d 100644
 +	if (irq < 0)
 +		return irq;
  
- 	ret = panthor_request_gpu_irq(ptdev, &ptdev->gpu->irq, irq, GPU_INTERRUPTS_MASK);
- 	if (ret)
+ 	ret = panthor_request_gpu_irq(ptdev, &ptdev->gpu->irq, irq,
+ 				      ptdev->iomem + GPU_INT_BASE);
 diff --git a/drivers/gpu/drm/panthor/panthor_mmu.c b/drivers/gpu/drm/panthor/panthor_mmu.c
-index 2262e314fc540..c66472f9ca121 100644
+index f2056b7898fe..ec69cdf4b59c 100644
 --- a/drivers/gpu/drm/panthor/panthor_mmu.c
 +++ b/drivers/gpu/drm/panthor/panthor_mmu.c
-@@ -2729,13 +2729,17 @@ int panthor_mmu_init(struct panthor_device *ptdev)
- 
+@@ -3258,13 +3258,17 @@ int panthor_mmu_init(struct panthor_device *ptdev)
+ 	mmu->iomem = ptdev->iomem + MMU_AS_BASE;
  	ptdev->mmu = mmu;
  
 -	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "MMU");
@@ -140,4 +140,7 @@ index 2262e314fc540..c66472f9ca121 100644
 +		return -ENODEV;
  
  	ret = panthor_request_mmu_irq(ptdev, &mmu->irq, irq,
- 				      panthor_mmu_fault_mask(ptdev, ~0));
+ 				      ptdev->iomem + MMU_INT_BASE);
+-- 
+2.54.0
+

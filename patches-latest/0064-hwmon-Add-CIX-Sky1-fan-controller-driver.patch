@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 3ba07f4e27efe90802207f5c63843f0b4969dfc4 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Fri, 6 Feb 2026 02:06:37 +1100
-Subject: [PATCH] hwmon: Add CIX Sky1 fan controller driver
+Subject: [PATCH 064/145] hwmon: Add CIX Sky1 fan controller driver
 
 Add driver for the CIX Sky1 SoC fan controller which provides:
 - PWM-based fan speed control via hwmon interface
@@ -18,10 +18,10 @@ with the kernel's hwmon subsystem for thermal management.
  create mode 100644 drivers/hwmon/cix-fan.c
 
 diff --git a/drivers/hwmon/Kconfig b/drivers/hwmon/Kconfig
-index 157678b821fc5..0f0ea7f814670 100644
+index 2bfbcc033d59..d016d3ffcadf 100644
 --- a/drivers/hwmon/Kconfig
 +++ b/drivers/hwmon/Kconfig
-@@ -503,6 +503,19 @@ config SENSORS_CHIPCAP2
+@@ -489,6 +489,19 @@ config SENSORS_CHIPCAP2
  	  To compile this driver as a module, choose M here: the module
  	  will be called chipcap2.
  
@@ -42,11 +42,11 @@ index 157678b821fc5..0f0ea7f814670 100644
  	tristate "Corsair Commander Pro controller"
  	depends on HID
 diff --git a/drivers/hwmon/Makefile b/drivers/hwmon/Makefile
-index eade8e3b1bde4..0177a69077aa5 100644
+index 63effc0ab8d1..9a668fc2c163 100644
 --- a/drivers/hwmon/Makefile
 +++ b/drivers/hwmon/Makefile
-@@ -61,6 +61,7 @@ obj-$(CONFIG_SENSORS_AXI_FAN_CONTROL) += axi-fan-control.o
- obj-$(CONFIG_SENSORS_BT1_PVT)	+= bt1-pvt.o
+@@ -61,6 +61,7 @@ obj-$(CONFIG_SENSORS_ATXP1)	+= atxp1.o
+ obj-$(CONFIG_SENSORS_AXI_FAN_CONTROL) += axi-fan-control.o
  obj-$(CONFIG_SENSORS_CGBC)	+= cgbc-hwmon.o
  obj-$(CONFIG_SENSORS_CHIPCAP2) += chipcap2.o
 +obj-$(CONFIG_SENSORS_CIX_FAN)	+= cix-fan.o
@@ -55,7 +55,7 @@ index eade8e3b1bde4..0177a69077aa5 100644
  obj-$(CONFIG_SENSORS_CORSAIR_PSU) += corsair-psu.o
 diff --git a/drivers/hwmon/cix-fan.c b/drivers/hwmon/cix-fan.c
 new file mode 100644
-index 0000000000000..3b6766f893b25
+index 000000000000..3b6766f893b2
 --- /dev/null
 +++ b/drivers/hwmon/cix-fan.c
 @@ -0,0 +1,171 @@
@@ -230,3 +230,6 @@ index 0000000000000..3b6766f893b25
 +MODULE_AUTHOR("CIX Technology Group Co., Ltd.");
 +MODULE_DESCRIPTION("CIX Sky1 fan control driver");
 +MODULE_LICENSE("GPL");
+-- 
+2.54.0
+

@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From dfa1bb99f860a3cd9dcfa6ef9805a0935a59668f Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Mon, 9 Feb 2026 11:08:15 +1100
-Subject: [PATCH] PCI: sky1: Fix ACPI probe with proper RSTL reset and
+Subject: [PATCH 093/145] PCI: sky1: Fix ACPI probe with proper RSTL reset and
  regulator support
 
 The scan handler creates CIXH2020 platform devices without fwnode to
@@ -29,7 +29,7 @@ allocation, and make internal functions static.
  4 files changed, 107 insertions(+), 32 deletions(-)
 
 diff --git a/drivers/pci/controller/cadence/pci-sky1-acpi.c b/drivers/pci/controller/cadence/pci-sky1-acpi.c
-index 1ad1318035904..1032a73cc7ad6 100644
+index 1ad131803590..1032a73cc7ad 100644
 --- a/drivers/pci/controller/cadence/pci-sky1-acpi.c
 +++ b/drivers/pci/controller/cadence/pci-sky1-acpi.c
 @@ -94,12 +94,11 @@ static int sky1_cixh2020_create_pdev(struct acpi_device *adev)
@@ -73,7 +73,7 @@ index 1ad1318035904..1032a73cc7ad6 100644
  		 dev_name(&pdev->dev), count);
  	return 1;
 diff --git a/drivers/pci/controller/cadence/pci-sky1-acpi.h b/drivers/pci/controller/cadence/pci-sky1-acpi.h
-index 2e4869c78e8cf..43b20a339027e 100644
+index 2e4869c78e8c..43b20a339027 100644
 --- a/drivers/pci/controller/cadence/pci-sky1-acpi.h
 +++ b/drivers/pci/controller/cadence/pci-sky1-acpi.h
 @@ -7,9 +7,9 @@ struct acpi_device;
@@ -90,7 +90,7 @@ index 2e4869c78e8cf..43b20a339027e 100644
  struct sky1_pcie_acpi_pdata {
  	struct acpi_device *adev;
 diff --git a/drivers/pci/controller/cadence/pci-sky1.c b/drivers/pci/controller/cadence/pci-sky1.c
-index 6db46657df989..6a6613f86604b 100644
+index 6db46657df98..6a6613f86604 100644
 --- a/drivers/pci/controller/cadence/pci-sky1.c
 +++ b/drivers/pci/controller/cadence/pci-sky1.c
 @@ -339,7 +339,7 @@ static void sky1_pcie_ctrl_writel_reg(struct sky1_pcie *pcie, u32 reg, u32 val)
@@ -197,18 +197,18 @@ index 6db46657df989..6a6613f86604b 100644
  	if (ret < 0)
  		return -EINVAL;
 diff --git a/drivers/regulator/fixed.c b/drivers/regulator/fixed.c
-index 3c0255ca03133..61917ea611ed3 100644
+index 4a381b261df2..2fb58312a8ee 100644
 --- a/drivers/regulator/fixed.c
 +++ b/drivers/regulator/fixed.c
-@@ -29,6 +29,7 @@
+@@ -28,6 +28,7 @@
  #include <linux/regulator/of_regulator.h>
  #include <linux/regulator/machine.h>
  #include <linux/clk.h>
 +#include <linux/property.h>
  
- /* Default time in millisecond to wait for emergency shutdown */
- #define FV_DEF_EMERG_SHUTDWN_TMO	10
-@@ -207,6 +208,57 @@ of_get_fixed_voltage_config(struct device *dev,
+ struct fixed_voltage_data {
+ 	struct regulator_desc desc;
+@@ -203,6 +204,57 @@ of_get_fixed_voltage_config(struct device *dev,
  static const struct regulator_ops fixed_voltage_ops = {
  };
  
@@ -266,7 +266,7 @@ index 3c0255ca03133..61917ea611ed3 100644
  static const struct regulator_ops fixed_voltage_clkenabled_ops = {
  	.enable = reg_clock_enable,
  	.disable = reg_clock_disable,
-@@ -239,6 +291,11 @@ static int reg_fixed_voltage_probe(struct platform_device *pdev)
+@@ -235,6 +287,11 @@ static int reg_fixed_voltage_probe(struct platform_device *pdev)
  						     &drvdata->desc);
  		if (IS_ERR(config))
  			return PTR_ERR(config);
@@ -278,3 +278,6 @@ index 3c0255ca03133..61917ea611ed3 100644
  	} else {
  		config = dev_get_platdata(&pdev->dev);
  	}
+-- 
+2.54.0
+

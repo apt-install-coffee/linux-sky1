@@ -1,8 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From bdd83650e3451f4a02427ef4594813b5e22d90a7 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Wed, 4 Feb 2026 16:52:03 +1100
-Subject: [PATCH] arm64: dts: cix: Add USB overcurrent and NVMe wake GPIOs on
- Orion O6
+Subject: [PATCH 031/145] arm64: dts: cix: Add USB overcurrent and NVMe wake
+ GPIOs on Orion O6
 
 Wire up GPIO signals identified from schematic review:
 
@@ -19,7 +19,7 @@ NVMe wake:
  1 file changed, 10 insertions(+), 1 deletion(-)
 
 diff --git a/arch/arm64/boot/dts/cix/sky1-orion-o6.dts b/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
-index 20ad40d084c08..6f8976e5ef220 100644
+index 20ad40d084c0..6f8976e5ef22 100644
 --- a/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
 +++ b/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
 @@ -397,6 +397,12 @@ CIX_PAD_SFI_GPIO1_FUNC_GPIO016 (PULL_UP|DS_LEVEL4) /* GPIO016 - S5_gpio1 1 */
@@ -62,3 +62,6 @@ index 20ad40d084c08..6f8976e5ef220 100644
  	vcc-pcie-supply = <&vdd_3v3_nvme>;
  	status = "okay";
  };
+-- 
+2.54.0
+

@@ -1,0 +1,2227 @@
+From f349fd363a2be9c5641326ab7015b6b0b3b6c931 Mon Sep 17 00:00:00 2001
+From: Jordan McCallum <apt-install-coffee@proton.me>
+Date: Thu, 20 Aug 2026 16:55:16 +1000
+Subject: [PATCH 141/145] v7.2: drop fork subsystems now superseded by mainline
+
+Linux v7.2 upstreamed/redesigned several areas the Sky1 patch set carried:
+
+- drm/panthor: mainline now has GPU CPU/GPU coherency (ptdev->coherent),
+  which is what the fork's ACE-Lite patch added. Restore mainline panthor
+  and drop the fork's now-redundant GPU coherency changes (incl. the
+  re-added panthor_regs.h that v7.2 deleted).
+- firmware/arm_scmi: v7.2 rebuilt the SCMI transport layer around
+  scmi_transport_supplier. The fork's ACPI-boot SCMI additions no longer
+  apply; adopt mainline SCMI (device-tree boot path is unaffected).
+- pci/pci-acpi.c: the fork's ACPI resource-fixup approach was already
+  reverted within the patch set; restore mainline (v7.2 also needs its
+  iommu.h include for pci_dev_reset_iommu_prepare()).
+
+Per maintainer direction: adopt mainline for ACPI subsystems v7.2 redesigned;
+the Orion O6 boots via device tree here.
+---
+ drivers/firmware/arm_scmi/bus.c               |   3 -
+ drivers/firmware/arm_scmi/common.h            | 121 +++++-
+ drivers/firmware/arm_scmi/driver.c            |  52 +--
+ drivers/firmware/arm_scmi/shmem.c             |  99 +----
+ .../firmware/arm_scmi/transports/mailbox.c    |  58 +--
+ drivers/firmware/arm_scmi/transports/optee.c  |   2 +-
+ drivers/firmware/arm_scmi/transports/smc.c    |  16 +-
+ drivers/firmware/arm_scmi/transports/virtio.c |   2 +-
+ drivers/gpu/drm/panthor/panthor_devfreq.c     | 324 +--------------
+ drivers/gpu/drm/panthor/panthor_device.c      | 387 +-----------------
+ drivers/gpu/drm/panthor/panthor_device.h      |  41 +-
+ drivers/gpu/drm/panthor/panthor_drv.c         |  10 -
+ drivers/gpu/drm/panthor/panthor_fw.c          |  10 +-
+ drivers/gpu/drm/panthor/panthor_gem.c         |  10 +-
+ drivers/gpu/drm/panthor/panthor_gpu.c         |  43 +-
+ drivers/gpu/drm/panthor/panthor_hw.c          |  32 +-
+ drivers/gpu/drm/panthor/panthor_mmu.c         |  44 +-
+ drivers/gpu/drm/panthor/panthor_regs.h        | 296 --------------
+ drivers/pci/pci-acpi.c                        |   4 +-
+ 19 files changed, 192 insertions(+), 1362 deletions(-)
+ delete mode 100644 drivers/gpu/drm/panthor/panthor_regs.h
+
+diff --git a/drivers/firmware/arm_scmi/bus.c b/drivers/firmware/arm_scmi/bus.c
+index 90248eabd0c7..793be9eabaed 100644
+--- a/drivers/firmware/arm_scmi/bus.c
++++ b/drivers/firmware/arm_scmi/bus.c
+@@ -466,9 +466,6 @@ __scmi_device_create(struct device_node *np, struct device *parent,
+ 	scmi_dev->protocol_id = protocol;
+ 	scmi_dev->dev.parent = parent;
+ 	device_set_node(&scmi_dev->dev, of_fwnode_handle(np));
+-	/* ACPI: inherit parent fwnode when no DT node */
+-	if (!np && parent)
+-		scmi_dev->dev.fwnode = dev_fwnode(parent);
+ 	scmi_dev->dev.bus = &scmi_bus_type;
+ 	scmi_dev->dev.release = scmi_device_release;
+ 	dev_set_name(&scmi_dev->dev, "scmi_dev.%d", id);
+diff --git a/drivers/firmware/arm_scmi/common.h b/drivers/firmware/arm_scmi/common.h
+index 6244142ca746..b9723c105fc1 100644
+--- a/drivers/firmware/arm_scmi/common.h
++++ b/drivers/firmware/arm_scmi/common.h
+@@ -9,7 +9,6 @@
+ #ifndef _SCMI_COMMON_H
+ #define _SCMI_COMMON_H
+ 
+-#include <linux/acpi.h>
+ #include <linux/bitfield.h>
+ #include <linux/completion.h>
+ #include <linux/device.h>
+@@ -503,8 +502,118 @@ struct scmi_transport {
+ 	const struct scmi_transport_handle *th;
+ };
+ 
+-#define DEFINE_SCMI_TRANSPORT_DRIVER(__tag, __drv, __desc, __of_match,	       \
+-				     __acpi_match, __core_ops)		       \
++/**
++ * struct scmi_transport_supplier  - Transport descriptor
++ * @mtx: A mutex to protect @available
++ * @available: A reference to an initialized transport device, when available.
++ *	       This reference is implicitly used to track the status of the
++ *	       supplier and it can cycle through the following 3 states:
++ *	       1. NOT_READY - PTR_ERR(-EPROBE_DEFER): no supplier available;
++ *		  this is the transport initial state.
++ *	       2. AVAILABLE - <supplier_dev>: a transport supplier has been
++ *		  initialized and it is available, ready to use.
++ *	       3. BUSY _ PTR_ERR(-EBUSY): transport supplier is currently in use.
++ * @th: An embedded transport handle object that embeds the helpers
++ *	implementing the above mentioned logic
++ *
++ * Note that this transport driver enforces single instance probing.
++ */
++struct scmi_transport_supplier {
++	/* Protect @available */
++	struct mutex mtx;
++	struct device *available;
++	const struct scmi_transport_handle th;
++};
++
++#define to_sup(t)	container_of(t, struct scmi_transport_supplier, th)
++
++/**
++ * scmi_transport_supplier_put  - A helper to dispose of a supplier
++ * @th: A reference to the transport handle to use
++ * @supplier: A reference to the device supplier to manage, cannot be NULL
++ *	      or ERR_PTR.
++ *
++ * Note that putting a supplier will have different effect based on the
++ * current state of scmi_transport_supplier.available:
++ *  - NOT_READY/BUSY: @supplier will be set as the new available device: this
++ *		      can be used to made available a supplier OR stop using one.
++ *  - AVAILABLE: if the @supplier we are disposing of matches the currently
++ *		 available one, roll back to NOT_READY state.
++ *		 Any other attempt to override an available supplier with a
++ *		 new one is rejected, effectively enforcing one single supplier.
++ *
++ * Return: 0 on Success, errno otherwise.
++ */
++static inline int
++scmi_transport_supplier_put(const struct scmi_transport_handle *th,
++			    struct device *supplier)
++{
++	struct scmi_transport_supplier *sup = to_sup(th);
++
++	/* Nothing to do when the provided supplier was never real */
++	if (IS_ERR_OR_NULL(supplier))
++		return 0;
++
++	guard(mutex)(&sup->mtx);
++	switch (PTR_ERR_OR_ZERO(sup->available)) {
++	case -EPROBE_DEFER:
++	case -EBUSY:
++		sup->available = supplier;
++		break;
++	case 0:
++		/* Putting a supplier when in the AVAILABLE state causes a
++		 * transition back to the NOT_READY state, BUT only if the
++		 * supplier we are disposing of was exactly the device that was
++		 * previously made readily available.
++		 */
++		if (supplier != sup->available)
++			return -EINVAL;
++		sup->available = ERR_PTR(-EPROBE_DEFER);
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++/**
++ * scmi_transport_supplier_get  - A helper to get hold of a supplier
++ * @th: A reference to the transport handle to use
++ *
++ * Note that, trying to get a supplier device can return:
++ *  - a ready to use supplier device, (subsequently made unavailable)
++ *  - PTR_ERR(-EPROBE_DEFER): no supplier is available
++ *  - PTR_ERR(-BUSY): supplier was already taken by a previous get
++ *
++ *  This allows the probe to defer and wait when a possible device can
++ *  be reasonably expected to appear.
++ *
++ * Return: a usable supplier device on Success or PTR_ERR on Failure.
++ */
++static inline struct device *
++scmi_transport_supplier_get(const struct scmi_transport_handle *th)
++{
++	struct scmi_transport_supplier *sup = to_sup(th);
++	struct device *supplier;
++
++	guard(mutex)(&sup->mtx);
++	supplier = sup->available;
++	if (!IS_ERR(sup->available))
++		sup->available = ERR_PTR(-EBUSY);
++
++	return supplier;
++}
++
++#define DEFINE_SCMI_TRANSPORT_SUPPLIER(__supplier)		\
++struct scmi_transport_supplier __supplier = {			\
++	.mtx = __MUTEX_INITIALIZER(__supplier.mtx),		\
++	.available = INIT_ERR_PTR(-EPROBE_DEFER),		\
++	.th.supplier_get = scmi_transport_supplier_get,		\
++	.th.supplier_put = scmi_transport_supplier_put,		\
++}
++
++#define DEFINE_SCMI_TRANSPORT_DRIVER(__tag, __drv, __desc, __match, __core_ops)\
+ static void __tag##_dev_free(void *data)				       \
+ {									       \
+ 	struct platform_device *spdev = data;				       \
+@@ -539,9 +648,6 @@ static int __tag##_probe(struct platform_device *pdev)			       \
+ 	}								       \
+ 									       \
+ 	device_set_of_node_from_dev(&spdev->dev, dev);			       \
+-	/* ACPI: propagate fwnode when no DT node is present */		       \
+-	if (!spdev->dev.fwnode)						       \
+-		spdev->dev.fwnode = dev_fwnode(dev);			       \
+ 									       \
+ 	strans.supplier = supplier;					       \
+ 	memcpy(&strans.desc, &(__desc), sizeof(strans.desc));		       \
+@@ -570,8 +676,7 @@ err_mem:								       \
+ static struct platform_driver __drv = {					       \
+ 	.driver = {							       \
+ 		   .name = #__tag "_transport",				       \
+-		   .of_match_table = __of_match,			       \
+-		   .acpi_match_table = ACPI_PTR(__acpi_match),		       \
++		   .of_match_table = __match,				       \
+ 		   },							       \
+ 	.probe = __tag##_probe,						       \
+ }
+diff --git a/drivers/firmware/arm_scmi/driver.c b/drivers/firmware/arm_scmi/driver.c
+index 3c725380e92a..3e0d975ec94c 100644
+--- a/drivers/firmware/arm_scmi/driver.c
++++ b/drivers/firmware/arm_scmi/driver.c
+@@ -175,9 +175,6 @@ struct scmi_info {
+ };
+ 
+ #define handle_to_scmi_info(h)	container_of(h, struct scmi_info, handle)
+-
+-/* Sentinel stored in active_protocols IDR for ACPI-enumerated protocols */
+-#define SCMI_NO_DT_NODE		((struct device_node *)0x1)
+ #define tx_minfo_to_scmi_info(h) container_of(h, struct scmi_info, tx_minfo)
+ #define bus_nb_to_scmi_info(nb)	container_of(nb, struct scmi_info, bus_nb)
+ #define req_nb_to_scmi_info(nb)	container_of(nb, struct scmi_info, dev_req_nb)
+@@ -2754,18 +2751,6 @@ static int scmi_chan_setup(struct scmi_info *info, struct device_node *of_node,
+ 	idx = tx ? 0 : 1;
+ 	idr = tx ? &info->tx_idr : &info->rx_idr;
+ 
+-	/*
+-	 * ACPI: no DT children describe per-protocol channels.
+-	 * All non-base protocols share the base transport channel,
+-	 * mirroring the DT fallback when children lack own mboxes.
+-	 */
+-	if (!of_node && prot_id != SCMI_PROTOCOL_BASE) {
+-		cinfo = idr_find(idr, SCMI_PROTOCOL_BASE);
+-		if (unlikely(!cinfo))
+-			return -EINVAL;
+-		goto idr_alloc;
+-	}
+-
+ 	if (!info->desc->ops->chan_available(of_node, idx)) {
+ 		cinfo = idr_find(idr, SCMI_PROTOCOL_BASE);
+ 		if (unlikely(!cinfo)) /* Possible only if platform has no Rx */
+@@ -2975,8 +2960,6 @@ static int scmi_device_request_notifier(struct notifier_block *nb,
+ 	np = idr_find(&info->active_protocols, id_table->protocol_id);
+ 	if (!np)
+ 		return NOTIFY_DONE;
+-	if (np == SCMI_NO_DT_NODE)
+-		np = NULL;
+ 
+ 	dev_dbg(info->dev, "%sRequested device (%s) for protocol 0x%x\n",
+ 		action == SCMI_BUS_NOTIFY_DEVICE_REQUEST ? "" : "UN-",
+@@ -3382,38 +3365,6 @@ static int scmi_probe(struct platform_device *pdev)
+ 		scmi_create_protocol_devices(child, info, prot_id, NULL);
+ 	}
+ 
+-	/*
+-	 * ACPI fallback: no DT children to iterate. Enumerate all
+-	 * protocols reported by firmware via base protocol discovery.
+-	 */
+-	if (!np) {
+-		int i;
+-
+-		for (i = 0; i < info->version.num_protocols; i++) {
+-			u8 prot_id = info->protocols_imp[i];
+-
+-			if (!FIELD_FIT(MSG_PROTOCOL_ID_MASK, prot_id))
+-				continue;
+-
+-			ret = scmi_txrx_setup(info, NULL, prot_id);
+-			if (ret)
+-				continue;
+-
+-			ret = idr_alloc(&info->active_protocols,
+-					SCMI_NO_DT_NODE,
+-					prot_id, prot_id + 1, GFP_KERNEL);
+-			if (ret != prot_id) {
+-				dev_err(dev,
+-					"SCMI protocol %d already activated. Skip\n",
+-					prot_id);
+-				continue;
+-			}
+-
+-			scmi_create_protocol_devices(NULL, info, prot_id,
+-						     NULL);
+-		}
+-	}
+-
+ 	return 0;
+ 
+ notification_exit:
+@@ -3457,8 +3408,7 @@ static void scmi_remove(struct platform_device *pdev)
+ 	mutex_unlock(&info->protocols_mtx);
+ 
+ 	idr_for_each_entry(&info->active_protocols, child, id)
+-		if (child != SCMI_NO_DT_NODE)
+-			of_node_put(child);
++		of_node_put(child);
+ 	idr_destroy(&info->active_protocols);
+ 
+ 	blocking_notifier_chain_unregister(&scmi_requested_devices_nh,
+diff --git a/drivers/firmware/arm_scmi/shmem.c b/drivers/firmware/arm_scmi/shmem.c
+index f7bd60a17d12..dadb37557f8a 100644
+--- a/drivers/firmware/arm_scmi/shmem.c
++++ b/drivers/firmware/arm_scmi/shmem.c
+@@ -5,13 +5,11 @@
+  * Copyright (C) 2019-2024 ARM Ltd.
+  */
+ 
+-#include <linux/acpi.h>
+ #include <linux/ktime.h>
+ #include <linux/io.h>
+ #include <linux/of.h>
+ #include <linux/of_address.h>
+ #include <linux/processor.h>
+-#include <linux/property.h>
+ #include <linux/types.h>
+ 
+ #include <linux/bug.h>
+@@ -193,93 +191,6 @@ static bool shmem_channel_intr_enabled(struct scmi_shared_mem __iomem *shmem)
+ 	return ioread32(&shmem->flags) & SCMI_SHMEM_FLAG_INTR_ENABLED;
+ }
+ 
+-#ifdef CONFIG_ACPI
+-static void __iomem *shmem_acpi_setup_iomap(struct scmi_chan_info *cinfo,
+-					     struct device *dev, bool tx,
+-					     struct resource *res,
+-					     struct scmi_shmem_io_ops **ops)
+-{
+-	struct fwnode_reference_args args;
+-	struct resource_entry *rentry;
+-	const char *desc = tx ? "Tx" : "Rx";
+-	int idx = tx ? 0 : 1;
+-	struct acpi_device *adev;
+-	struct resource lres = {};
+-	resource_size_t size;
+-	void __iomem *addr;
+-	LIST_HEAD(res_list);
+-	int ret;
+-
+-	if (!res)
+-		res = &lres;
+-
+-	ret = fwnode_property_get_reference_args(dev_fwnode(cinfo->dev),
+-						 "shmem", NULL, 0, idx, &args);
+-	if (ret) {
+-		dev_err(cinfo->dev,
+-			"failed to get SCMI %s shmem reference\n", desc);
+-		return IOMEM_ERR_PTR(ret);
+-	}
+-
+-	if (!is_acpi_device_node(args.fwnode)) {
+-		fwnode_handle_put(args.fwnode);
+-		return IOMEM_ERR_PTR(-EINVAL);
+-	}
+-
+-	adev = to_acpi_device_node(args.fwnode);
+-
+-	ret = acpi_dev_get_resources(adev, &res_list, NULL, NULL);
+-	if (ret <= 0) {
+-		fwnode_handle_put(args.fwnode);
+-		return IOMEM_ERR_PTR(ret ? ret : -EINVAL);
+-	}
+-
+-	addr = IOMEM_ERR_PTR(-ENODEV);
+-	list_for_each_entry(rentry, &res_list, node) {
+-		if (resource_type(rentry->res) != IORESOURCE_MEM)
+-			continue;
+-
+-		*res = *rentry->res;
+-		size = resource_size(res);
+-		if (cinfo->max_msg_size + SCMI_SHMEM_LAYOUT_OVERHEAD > size) {
+-			dev_err(dev, "misconfigured SCMI shared memory\n");
+-			addr = IOMEM_ERR_PTR(-ENOSPC);
+-			break;
+-		}
+-
+-		addr = devm_ioremap(dev, res->start, size);
+-		if (!addr) {
+-			dev_err(dev,
+-				"failed to ioremap SCMI %s shared memory\n",
+-				desc);
+-			addr = IOMEM_ERR_PTR(-EADDRNOTAVAIL);
+-		}
+-		break;
+-	}
+-
+-	acpi_dev_free_resource_list(&res_list);
+-
+-	if (!IS_ERR(addr)) {
+-		u32 reg_io_width = 4;
+-
+-		fwnode_property_read_u32(args.fwnode,
+-					"reg-io-width", &reg_io_width);
+-		switch (reg_io_width) {
+-		case 4:
+-			*ops = &shmem_io_ops32;
+-			break;
+-		default:
+-			*ops = &shmem_io_ops_default;
+-			break;
+-		}
+-	}
+-
+-	fwnode_handle_put(args.fwnode);
+-
+-	return addr;
+-}
+-#endif
+-
+ static void __iomem *shmem_setup_iomap(struct scmi_chan_info *cinfo,
+ 				       struct device *dev, bool tx,
+ 				       struct resource *res,
+@@ -293,15 +204,9 @@ static void __iomem *shmem_setup_iomap(struct scmi_chan_info *cinfo,
+ 	void __iomem *addr;
+ 	u32 reg_io_width;
+ 
+-	if (!cdev->of_node) {
+-#ifdef CONFIG_ACPI
+-		return shmem_acpi_setup_iomap(cinfo, dev, tx, res, ops);
+-#else
+-		return IOMEM_ERR_PTR(-ENODEV);
+-#endif
+-	}
++	struct device_node *shmem __free(device_node) = of_parse_phandle(cdev->of_node,
++		"shmem", idx);
+ 
+-	shmem = of_parse_phandle(cdev->of_node, "shmem", idx);
+ 	if (!shmem)
+ 		return IOMEM_ERR_PTR(-ENODEV);
+ 
+diff --git a/drivers/firmware/arm_scmi/transports/mailbox.c b/drivers/firmware/arm_scmi/transports/mailbox.c
+index 0502edd332b9..ae0f67e6cc45 100644
+--- a/drivers/firmware/arm_scmi/transports/mailbox.c
++++ b/drivers/firmware/arm_scmi/transports/mailbox.c
+@@ -12,7 +12,6 @@
+ #include <linux/of.h>
+ #include <linux/of_address.h>
+ #include <linux/platform_device.h>
+-#include <linux/property.h>
+ #include <linux/slab.h>
+ 
+ #include "../common.h"
+@@ -82,9 +81,6 @@ static bool mailbox_chan_available(struct device_node *of_node, int idx)
+ {
+ 	int num_mb;
+ 
+-	if (!of_node)
+-		return true;
+-
+ 	/*
+ 	 * Just check if bidirrectional channels are involved, and check the
+ 	 * index accordingly; proper full validation will be made later
+@@ -116,42 +112,14 @@ static bool mailbox_chan_available(struct device_node *of_node, int idx)
+  *
+  * Return: 0 on Success or error
+  */
+-static int fwnode_count_references(struct fwnode_handle *fwnode,
+-				   const char *prop, unsigned int nargs)
+-{
+-	struct fwnode_reference_args args;
+-	int count = 0;
+-
+-	while (!fwnode_property_get_reference_args(fwnode, prop, NULL,
+-						   nargs, count, &args)) {
+-		fwnode_handle_put(args.fwnode);
+-		count++;
+-	}
+-	return count;
+-}
+-
+ static int mailbox_chan_validate(struct device *cdev, int *a2p_rx_chan,
+ 				 int *p2a_chan, int *p2a_rx_chan)
+ {
+ 	int num_mb, num_sh, ret = 0;
+ 	struct device_node *np = cdev->of_node;
+ 
+-	if (np) {
+-		num_mb = of_count_phandle_with_args(np, "mboxes",
+-						    "#mbox-cells");
+-		num_sh = of_count_phandle_with_args(np, "shmem", NULL);
+-	} else {
+-		struct fwnode_handle *fwnode = dev_fwnode(cdev);
+-
+-		/*
+-		 * In ACPI mode, count mailbox and shmem references from
+-		 * _DSD properties.  Each mbox reference has one integer
+-		 * argument (the channel index), shmem references are bare.
+-		 */
+-		num_mb = fwnode_count_references(fwnode, "mboxes", 1);
+-		num_sh = fwnode_count_references(fwnode, "shmem", 0);
+-	}
+-
++	num_mb = of_count_phandle_with_args(np, "mboxes", "#mbox-cells");
++	num_sh = of_count_phandle_with_args(np, "shmem", NULL);
+ 	dev_dbg(cdev, "Found %d mboxes and %d shmems !\n", num_mb, num_sh);
+ 
+ 	/* Bail out if mboxes and shmem descriptors are inconsistent */
+@@ -159,21 +127,20 @@ static int mailbox_chan_validate(struct device *cdev, int *a2p_rx_chan,
+ 	    (num_mb == 1 && num_sh != 1) || (num_mb == 3 && num_sh != 2) ||
+ 	    (num_mb == 4 && num_sh != 2)) {
+ 		dev_warn(cdev,
+-			 "Invalid channel descriptor - mbs:%d  shm:%d\n",
+-			 num_mb, num_sh);
++			 "Invalid channel descriptor for '%pOF' - mbs:%d  shm:%d\n",
++			 np, num_mb, num_sh);
+ 		return -EINVAL;
+ 	}
+ 
+ 	/* Bail out if provided shmem descriptors do not refer distinct areas  */
+-	if (np && num_sh > 1) {
++	if (num_sh > 1) {
+ 		struct device_node *np_tx __free(device_node) =
+ 					of_parse_phandle(np, "shmem", 0);
+ 		struct device_node *np_rx __free(device_node) =
+ 					of_parse_phandle(np, "shmem", 1);
+ 
+ 		if (!np_tx || !np_rx || np_tx == np_rx) {
+-			dev_warn(cdev, "Invalid shmem descriptor for '%pOF'\n",
+-				 np);
++			dev_warn(cdev, "Invalid shmem descriptor for '%pOF'\n", np);
+ 			ret = -EINVAL;
+ 		}
+ 	}
+@@ -412,19 +379,8 @@ static const struct of_device_id scmi_of_match[] = {
+ };
+ MODULE_DEVICE_TABLE(of, scmi_of_match);
+ 
+-#ifdef CONFIG_ACPI
+-static const struct acpi_device_id scmi_acpi_match[] = {
+-	{ "CIXHA006", 0 },
+-	{ /* Sentinel */ },
+-};
+-MODULE_DEVICE_TABLE(acpi, scmi_acpi_match);
+-#else
+-#define scmi_acpi_match NULL
+-#endif
+-
+ DEFINE_SCMI_TRANSPORT_DRIVER(scmi_mailbox, scmi_mailbox_driver,
+-			     scmi_mailbox_desc, scmi_of_match,
+-			     scmi_acpi_match, core);
++			     scmi_mailbox_desc, scmi_of_match, core);
+ module_platform_driver(scmi_mailbox_driver);
+ 
+ MODULE_AUTHOR("Sudeep Holla <sudeep.holla@arm.com>");
+diff --git a/drivers/firmware/arm_scmi/transports/optee.c b/drivers/firmware/arm_scmi/transports/optee.c
+index 7863b7f53660..dbe32e141748 100644
+--- a/drivers/firmware/arm_scmi/transports/optee.c
++++ b/drivers/firmware/arm_scmi/transports/optee.c
+@@ -529,7 +529,7 @@ static const struct of_device_id scmi_of_match[] = {
+ };
+ 
+ DEFINE_SCMI_TRANSPORT_DRIVER(scmi_optee, scmi_optee_driver, scmi_optee_desc,
+-			     scmi_of_match, NULL, core);
++			     scmi_of_match, core);
+ 
+ static int scmi_optee_service_probe(struct tee_client_device *scmi_pta)
+ {
+diff --git a/drivers/firmware/arm_scmi/transports/smc.c b/drivers/firmware/arm_scmi/transports/smc.c
+index cdd3e86d5a17..21abb571e4f2 100644
+--- a/drivers/firmware/arm_scmi/transports/smc.c
++++ b/drivers/firmware/arm_scmi/transports/smc.c
+@@ -139,11 +139,6 @@ static int smc_chan_setup(struct scmi_chan_info *cinfo, struct device *dev,
+ 	u32 func_id;
+ 	int ret;
+ 
+-	pr_info("smc_chan_setup: tx=%d dev=%s cdev=%s\n", tx,
+-		dev_name(dev), dev_name(cdev));
+-	pr_info("smc_chan_setup: dev->of_node=%pOF cdev->of_node=%pOF\n",
+-		dev->of_node, cdev->of_node);
+-
+ 	if (!tx)
+ 		return -ENODEV;
+ 
+@@ -153,17 +148,12 @@ static int smc_chan_setup(struct scmi_chan_info *cinfo, struct device *dev,
+ 
+ 	scmi_info->shmem = core->shmem->setup_iomap(cinfo, dev, tx, &res,
+ 						    &scmi_info->io_ops);
+-	if (IS_ERR(scmi_info->shmem)) {
+-		pr_err("smc_chan_setup: setup_iomap failed: %ld\n",
+-		       PTR_ERR(scmi_info->shmem));
++	if (IS_ERR(scmi_info->shmem))
+ 		return PTR_ERR(scmi_info->shmem);
+-	}
+ 
+ 	ret = of_property_read_u32(dev->of_node, "arm,smc-id", &func_id);
+-	if (ret < 0) {
+-		pr_err("smc_chan_setup: arm,smc-id read failed: %d\n", ret);
++	if (ret < 0)
+ 		return ret;
+-	}
+ 
+ 	if (of_device_is_compatible(dev->of_node, "qcom,scmi-smc")) {
+ 		resource_size_t size = resource_size(&res);
+@@ -314,7 +304,7 @@ static const struct of_device_id scmi_of_match[] = {
+ MODULE_DEVICE_TABLE(of, scmi_of_match);
+ 
+ DEFINE_SCMI_TRANSPORT_DRIVER(scmi_smc, scmi_smc_driver, scmi_smc_desc,
+-			     scmi_of_match, NULL, core);
++			     scmi_of_match, core);
+ module_platform_driver(scmi_smc_driver);
+ 
+ MODULE_AUTHOR("Peng Fan <peng.fan@nxp.com>");
+diff --git a/drivers/firmware/arm_scmi/transports/virtio.c b/drivers/firmware/arm_scmi/transports/virtio.c
+index 81d1ddffc1d7..3282d8271839 100644
+--- a/drivers/firmware/arm_scmi/transports/virtio.c
++++ b/drivers/firmware/arm_scmi/transports/virtio.c
+@@ -815,7 +815,7 @@ static const struct of_device_id scmi_of_match[] = {
+ };
+ 
+ DEFINE_SCMI_TRANSPORT_DRIVER(scmi_virtio, scmi_virtio_driver, scmi_virtio_desc,
+-			     scmi_of_match, NULL, core);
++			     scmi_of_match, core);
+ 
+ static int scmi_vio_probe(struct virtio_device *vdev)
+ {
+diff --git a/drivers/gpu/drm/panthor/panthor_devfreq.c b/drivers/gpu/drm/panthor/panthor_devfreq.c
+index 494d608a987f..2249b41ca4af 100644
+--- a/drivers/gpu/drm/panthor/panthor_devfreq.c
++++ b/drivers/gpu/drm/panthor/panthor_devfreq.c
+@@ -4,9 +4,7 @@
+ #include <linux/clk.h>
+ #include <linux/devfreq.h>
+ #include <linux/devfreq_cooling.h>
+-#include <linux/of.h>
+ #include <linux/platform_device.h>
+-#include <linux/pm_domain.h>
+ #include <linux/pm_opp.h>
+ 
+ #include <drm/drm_managed.h>
+@@ -15,23 +13,6 @@
+ #include "panthor_devfreq.h"
+ #include "panthor_device.h"
+ 
+-/*
+- * SCMI rate limiting for GPU DVFS.
+- *
+- * The SCP firmware on Sky1 processes SCMI perf_level_set messages through a
+- * shared mailbox channel used by all 12 performance domains. Under sustained
+- * devfreq load (governor polling every 50-100ms), the firmware falls behind,
+- * responds out of order, and the SCMI transport locks up — blocking all SCMI
+- * users including networking.
+- *
+- * Fast channels are advertised by firmware but return -EOPNOTSUPP for all
+- * DESCRIBE_FASTCHANNEL requests, so we must rate-limit at the driver level.
+- */
+-#define PANTHOR_SCMI_RATE_LIMIT_US	100000		/* 100ms min between SCMI calls */
+-#define PANTHOR_SCMI_MAX_ERRORS		3		/* errors before safe-freq boost */
+-#define PANTHOR_SCMI_BACKOFF_BASE_US	500000		/* 500ms base backoff */
+-#define PANTHOR_SCMI_BACKOFF_MAX_US	4000000		/* 4s max backoff */
+-
+ /**
+  * struct panthor_devfreq - Device frequency management
+  */
+@@ -42,17 +23,6 @@ struct panthor_devfreq {
+ 	/** @gov_data: Governor data. */
+ 	struct devfreq_simple_ondemand_data gov_data;
+ 
+-	/**
+-	 * @opp_dev: Virtual device for SCMI perf domain OPP control.
+-	 *
+-	 * On platforms with a named "perf" power domain (e.g. SCMI DVFS),
+-	 * frequency changes must go through this virtual device rather than
+-	 * the main GPU device, so the OPP framework routes through the SCMI
+-	 * performance state (which manages both frequency and voltage).
+-	 * NULL if not using SCMI perf domain.
+-	 */
+-	struct device *opp_dev;
+-
+ 	/** @busy_time: Busy time. */
+ 	ktime_t busy_time;
+ 
+@@ -66,28 +36,13 @@ struct panthor_devfreq {
+ 	bool last_busy_state;
+ 
+ 	/**
+-	 * @lock: Lock used to protect busy_time, idle_time, time_last_update,
+-	 * last_busy_state, and the SCMI rate-limiting fields below.
++	 * @lock: Lock used to protect busy_time, idle_time, time_last_update and
++	 * last_busy_state.
+ 	 *
+ 	 * These fields can be accessed concurrently by panthor_devfreq_get_dev_status()
+ 	 * and panthor_devfreq_record_{busy,idle}().
+ 	 */
+ 	spinlock_t lock;
+-
+-	/** @last_set_freq: Last frequency successfully sent to SCMI. */
+-	unsigned long last_set_freq;
+-
+-	/** @last_set_time: ktime of the last actual SCMI frequency change. */
+-	ktime_t last_set_time;
+-
+-	/** @scmi_err_count: Consecutive SCMI error count for backoff. */
+-	unsigned int scmi_err_count;
+-
+-	/** @backoff_until: ktime before which SCMI calls are suppressed. */
+-	ktime_t backoff_until;
+-
+-	/** @safe_freq: Mid-range OPP for error recovery (computed at init). */
+-	unsigned long safe_freq;
+ };
+ 
+ static void panthor_devfreq_update_utilization(struct panthor_devfreq *pdevfreq)
+@@ -105,118 +60,20 @@ static void panthor_devfreq_update_utilization(struct panthor_devfreq *pdevfreq)
+ 	pdevfreq->time_last_update = now;
+ }
+ 
+-/*
+- * Set GPU frequency via the SCMI perf domain's performance state.
+- * Unlike dev_pm_opp_set_rate(), this does not require a clock — the genpd's
+- * set_performance_state callback handles the SCMI call.
+- */
+-static int panthor_devfreq_scmi_set_freq(struct device *dev, unsigned long freq)
+-{
+-	struct dev_pm_opp *opp;
+-	int ret;
+-
+-	opp = dev_pm_opp_find_freq_ceil(dev, &freq);
+-	if (IS_ERR(opp))
+-		return PTR_ERR(opp);
+-
+-	ret = dev_pm_opp_set_opp(dev, opp);
+-	dev_pm_opp_put(opp);
+-	return ret;
+-}
+-
+ static int panthor_devfreq_target(struct device *dev, unsigned long *freq,
+ 				  u32 flags)
+ {
+-	struct panthor_device *ptdev = dev_get_drvdata(dev);
+-	struct panthor_devfreq *pdevfreq = ptdev->devfreq;
+ 	struct dev_pm_opp *opp;
+-	unsigned long target_freq;
+-	unsigned long irqflags;
+-	ktime_t now;
+ 	int err;
+ 
+ 	opp = devfreq_recommended_opp(dev, freq, flags);
+ 	if (IS_ERR(opp))
+ 		return PTR_ERR(opp);
+-	target_freq = *freq;
+ 	dev_pm_opp_put(opp);
+ 
+-	/* Non-SCMI platforms: pass through unchanged */
+-	if (!pdevfreq->opp_dev)
+-		return dev_pm_opp_set_rate(dev, target_freq);
+-
+-	now = ktime_get();
+-	spin_lock_irqsave(&pdevfreq->lock, irqflags);
+-
+-	/* Suppress calls during error backoff */
+-	if (ktime_before(now, pdevfreq->backoff_until)) {
+-		spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+-		return 0;
+-	}
+-
+-	/* Skip if already at the requested frequency */
+-	if (target_freq == pdevfreq->last_set_freq) {
+-		spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+-		return 0;
+-	}
+-
+-	/* Rate limit: enforce minimum interval between SCMI calls */
+-	if (ktime_us_delta(now, pdevfreq->last_set_time) <
+-	    PANTHOR_SCMI_RATE_LIMIT_US) {
+-		spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+-		return 0;
+-	}
+-
+-	spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+-
+-	/* Actual SCMI frequency change (may sleep on mailbox) */
+-	err = panthor_devfreq_scmi_set_freq(dev, target_freq);
+-
+-	spin_lock_irqsave(&pdevfreq->lock, irqflags);
+-
+-	if (!err) {
+-		pdevfreq->last_set_freq = target_freq;
+-		pdevfreq->last_set_time = now;
+-		pdevfreq->scmi_err_count = 0;
+-		pdevfreq->backoff_until = 0;
+-	} else {
+-		unsigned int errcnt = ++pdevfreq->scmi_err_count;
+-		unsigned long backoff_us;
+-
+-		/* Exponential backoff: 500ms, 1s, 2s, capped at 4s */
+-		backoff_us = PANTHOR_SCMI_BACKOFF_BASE_US <<
+-			     min(errcnt - 1, 3u);
+-		if (backoff_us > PANTHOR_SCMI_BACKOFF_MAX_US)
+-			backoff_us = PANTHOR_SCMI_BACKOFF_MAX_US;
+-		pdevfreq->backoff_until = ktime_add_us(now, backoff_us);
+-
+-		drm_warn(&ptdev->base,
+-			 "GPU DVFS: SCMI error %d (count=%u), backoff %lu ms\n",
+-			 err, errcnt, backoff_us / 1000);
+-
+-		/* After repeated errors, boost to safe mid-range frequency */
+-		if (errcnt >= PANTHOR_SCMI_MAX_ERRORS && pdevfreq->safe_freq &&
+-		    pdevfreq->last_set_freq != pdevfreq->safe_freq) {
+-			spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+-
+-			drm_info(&ptdev->base,
+-				 "GPU DVFS: boosting to safe freq %lu MHz\n",
+-				 pdevfreq->safe_freq / 1000000);
+-			err = panthor_devfreq_scmi_set_freq(dev,
+-						       pdevfreq->safe_freq);
+-
+-			spin_lock_irqsave(&pdevfreq->lock, irqflags);
+-			if (!err) {
+-				pdevfreq->last_set_freq = pdevfreq->safe_freq;
+-				pdevfreq->last_set_time = ktime_get();
+-			}
+-		}
+-	}
++	err = dev_pm_opp_set_rate(dev, *freq);
+ 
+-	spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+-
+-	/* Always return 0 — errors cause devfreq to spam retries */
+-	return 0;
++	return err;
+ }
+ 
+ static void panthor_devfreq_reset(struct panthor_devfreq *pdevfreq)
+@@ -273,112 +130,6 @@ static struct devfreq_dev_profile panthor_devfreq_profile = {
+ 	.get_cur_freq = panthor_devfreq_get_cur_freq,
+ };
+ 
+-/**
+- * panthor_devfreq_scmi_init() - Try to set up DVFS via SCMI perf domain.
+- * @ptdev: Panthor device
+- * @pdevfreq: Panthor devfreq state
+- *
+- * On platforms with multiple power domains (e.g. Sky1 with pd_gpu + perf),
+- * the SCMI firmware provides an OPP table via the perf domain's attach_dev
+- * callback.
+- *
+- * Under DT: panthor_pm_domain_init() already created virtual devices for each
+- * domain.  Find the "perf" domain's virtual device, read OPPs from it, and
+- * copy them to the main device.  Frequency changes route through the virtual
+- * device so the SCMI firmware manages both frequency and voltage.
+- *
+- * Under ACPI: attach the GPU device directly to the SCMI perf genpd (looked
+- * up by firmware name).  The attach_dev callback populates OPPs on the main
+- * device.  Frequency changes go through the genpd's set_performance_state.
+- *
+- * Return: number of OPPs added, 0 if no perf domain found, negative on error.
+- */
+-static int panthor_devfreq_scmi_init(struct panthor_device *ptdev,
+-				     struct panthor_devfreq *pdevfreq)
+-{
+-	struct device *dev = ptdev->base.dev;
+-	struct device *opp_dev;
+-	struct dev_pm_opp *opp;
+-	unsigned long freq;
+-	int count, i, ret;
+-
+-	if (dev->of_node) {
+-		int index;
+-
+-		/* DT: find "perf" power domain virtual device */
+-		index = of_property_match_string(dev->of_node,
+-						 "power-domain-names", "perf");
+-		if (index < 0 || index >= ARRAY_SIZE(ptdev->pm_domain_devs))
+-			return 0;
+-
+-		opp_dev = ptdev->pm_domain_devs[index];
+-		if (!opp_dev)
+-			return 0;
+-
+-		/* Copy OPPs from virtual device to main device */
+-		count = dev_pm_opp_get_opp_count(opp_dev);
+-		if (count <= 0)
+-			return 0;
+-
+-		for (i = 0, freq = 0; ; i++, freq++) {
+-			opp = dev_pm_opp_find_freq_ceil(opp_dev, &freq);
+-			if (IS_ERR(opp))
+-				break;
+-			dev_pm_opp_put(opp);
+-
+-			ret = dev_pm_opp_add(dev, freq, 0);
+-			if (ret) {
+-				drm_warn(&ptdev->base,
+-					 "Failed to add OPP %lu Hz: %d\n",
+-					 freq, ret);
+-				break;
+-			}
+-		}
+-
+-		if (i == 0)
+-			return 0;
+-	} else {
+-		/*
+-		 * ACPI: attach directly to the SCMI perf genpd.  The
+-		 * genpd's attach_dev callback populates OPPs on the
+-		 * main device.  No virtual device or OPP copy needed.
+-		 */
+-		struct generic_pm_domain *perf_genpd;
+-
+-		perf_genpd = pm_genpd_lookup_by_name("gpu_core");
+-		if (!perf_genpd) {
+-			drm_dbg(&ptdev->base,
+-				"GPU DVFS: gpu_core genpd not found\n");
+-			return 0;
+-		}
+-
+-		ret = pm_genpd_add_device(perf_genpd, dev);
+-		if (ret) {
+-			drm_warn(&ptdev->base,
+-				 "Failed to attach SCMI perf domain: %d\n",
+-				 ret);
+-			return 0;
+-		}
+-
+-		count = dev_pm_opp_get_opp_count(dev);
+-		if (count <= 0) {
+-			pm_genpd_remove_device(dev);
+-			return 0;
+-		}
+-
+-		/* Main device IS the OPP device under ACPI */
+-		opp_dev = dev;
+-	}
+-
+-	pdevfreq->opp_dev = opp_dev;
+-
+-	drm_dbg(&ptdev->base,
+-		"GPU DVFS: %d OPPs from SCMI perf domain\n",
+-		dev_pm_opp_get_opp_count(dev));
+-
+-	return dev_pm_opp_get_opp_count(dev);
+-}
+-
+ int panthor_devfreq_init(struct panthor_device *ptdev)
+ {
+ 	/* There's actually 2 regulators (mali and sram), but the OPP core only
+@@ -403,15 +154,6 @@ int panthor_devfreq_init(struct panthor_device *ptdev)
+ 
+ 	ptdev->devfreq = pdevfreq;
+ 
+-	/*
+-	 * On platforms with a named "perf" power domain (SCMI DVFS), the
+-	 * platform bus won't auto-attach it when multiple power domains are
+-	 * present. Try to attach explicitly and populate OPPs from firmware.
+-	 */
+-	ret = panthor_devfreq_scmi_init(ptdev, pdevfreq);
+-	if (ret < 0)
+-		return ret;
+-
+ 	/*
+ 	 * The power domain associated with the GPU may have already added an
+ 	 * OPP table, complete with OPPs, as part of the platform bus
+@@ -423,22 +165,15 @@ int panthor_devfreq_init(struct panthor_device *ptdev)
+ 	table = dev_pm_opp_get_opp_table(dev);
+ 	if (IS_ERR_OR_NULL(table)) {
+ 		ret = devm_pm_opp_set_regulators(dev, reg_names);
+-		if (ret) {
+-			/* Continue if the optional regulator is missing */
+-			if (ret != -ENODEV) {
+-				if (ret != -EPROBE_DEFER)
+-					DRM_DEV_ERROR(dev, "Couldn't set OPP regulators\n");
+-				return ret;
+-			}
++		if (ret && ret != -ENODEV) {
++			if (ret != -EPROBE_DEFER)
++				DRM_DEV_ERROR(dev, "Couldn't set OPP regulators\n");
++			return ret;
+ 		}
+ 
+ 		ret = devm_pm_opp_of_add_table(dev);
+-		if (ret) {
+-			/* Optional, continue without devfreq */
+-			if (ret == -ENODEV)
+-				ret = 0;
++		if (ret)
+ 			return ret;
+-		}
+ 	} else {
+ 		dev_pm_opp_put_opp_table(table);
+ 	}
+@@ -486,12 +221,8 @@ int panthor_devfreq_init(struct panthor_device *ptdev)
+ 	panthor_devfreq_profile.initial_freq = cur_freq;
+ 
+ 	/*
+-	 * Set the recommended OPP. This will enable and configure the regulator
+-	 * if any and will avoid a switch off by regulator_late_cleanup().
+-	 *
+-	 * Use dev_pm_opp_set_opp() (not dev_pm_opp_set_rate) so this works
+-	 * both with regulators and with SCMI perf domains (which have no
+-	 * clock — frequency changes go through the genpd performance state).
++	 * Set the recommend OPP this will enable and configure the regulator
++	 * if any and will avoid a switch off by regulator_late_cleanup()
+ 	 */
+ 	ret = dev_pm_opp_set_opp(dev, opp);
+ 	dev_pm_opp_put(opp);
+@@ -508,33 +239,6 @@ int panthor_devfreq_init(struct panthor_device *ptdev)
+ 
+ 	dev_pm_opp_put(opp);
+ 
+-	/*
+-	 * For SCMI platforms, compute a safe mid-range frequency for error
+-	 * recovery and increase the polling interval to match our rate limit.
+-	 */
+-	if (pdevfreq->opp_dev) {
+-		unsigned long min_f = 0, max_f = ULONG_MAX, mid, safe;
+-		struct dev_pm_opp *opp_tmp;
+-
+-		opp_tmp = dev_pm_opp_find_freq_ceil(dev, &min_f);
+-		if (!IS_ERR(opp_tmp)) {
+-			dev_pm_opp_put(opp_tmp);
+-			opp_tmp = dev_pm_opp_find_freq_floor(dev, &max_f);
+-			if (!IS_ERR(opp_tmp)) {
+-				dev_pm_opp_put(opp_tmp);
+-				mid = min_f + (max_f - min_f) / 2;
+-				safe = mid;
+-				opp_tmp = dev_pm_opp_find_freq_ceil(dev, &safe);
+-				if (!IS_ERR(opp_tmp)) {
+-					pdevfreq->safe_freq = safe;
+-					dev_pm_opp_put(opp_tmp);
+-				}
+-			}
+-		}
+-
+-		panthor_devfreq_profile.polling_ms = 100;
+-	}
+-
+ 	/*
+ 	 * Setup default thresholds for the simple_ondemand governor.
+ 	 * The values are chosen based on experiments.
+@@ -568,12 +272,6 @@ void panthor_devfreq_resume(struct panthor_device *ptdev)
+ 
+ 	panthor_devfreq_reset(pdevfreq);
+ 
+-	/* Clear SCMI rate-limiting state on resume */
+-	pdevfreq->last_set_freq = 0;
+-	pdevfreq->last_set_time = 0;
+-	pdevfreq->scmi_err_count = 0;
+-	pdevfreq->backoff_until = 0;
+-
+ 	drm_WARN_ON(&ptdev->base, devfreq_resume_device(pdevfreq->devfreq));
+ }
+ 
+diff --git a/drivers/gpu/drm/panthor/panthor_device.c b/drivers/gpu/drm/panthor/panthor_device.c
+index d288a4928fad..9687c59de350 100644
+--- a/drivers/gpu/drm/panthor/panthor_device.c
++++ b/drivers/gpu/drm/panthor/panthor_device.c
+@@ -5,16 +5,10 @@
+ /* Copyright 2025 ARM Limited. All rights reserved. */
+ 
+ #include <linux/clk.h>
+-#include <linux/delay.h>
+-#include <linux/iommu.h>
+ #include <linux/mm.h>
+-#include <linux/moduleparam.h>
+-#include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_domain.h>
+-#include <linux/property.h>
+ #include <linux/pm_runtime.h>
+-#include <linux/arm-smccc.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/reset.h>
+ 
+@@ -33,177 +27,19 @@
+ #include "panthor_pwr.h"
+ #include "panthor_sched.h"
+ 
+-static bool panthor_is_sky1(struct panthor_device *ptdev)
+-{
+-	struct device *dev = ptdev->base.dev;
+-
+-	if (of_device_is_compatible(dev->of_node, "arm,mali-valhall"))
+-		return true;
+-
+-	return acpi_dev_hid_uid_match(ACPI_COMPANION(dev), "CIXH5000", NULL);
+-}
+-
+-/*
+- * Sky1 GPU power-on via raw SMC SCMI call to TFA (Trusted Firmware-A).
+- *
+- * Under DT, smc_devpd (arm,scmi-smc) sends SCMI POWER_STATE_SET to TFA
+- * via SMC function 0xc2000001 with shared memory at 0x84380000.
+- * Under ACPI, there's no smc_devpd, so we make the raw SMC call directly.
+- *
+- * TFA not only powers the GPU domain but also configures the IDM
+- * (Interconnect Domain Manager) to allow non-secure (Linux) access
+- * to GPU registers.  Without this, any GPU register read causes an
+- * unrecoverable SError.
+- */
+-#define SKY1_SMC_SCMI_FUNC_ID		0xc2000001
+-#define SKY1_SMC_SCMI_SHMEM_PHYS	0x84380000UL
+-#define SKY1_SMC_SCMI_SHMEM_SIZE	0x80
+-#define SKY1_PD_GPU			21
+-
+-/* SCMI shared memory offsets */
+-#define SCMI_SHMEM_CHAN_STATUS		0x04
+-#define SCMI_SHMEM_FLAGS		0x10
+-#define SCMI_SHMEM_LENGTH		0x14
+-#define SCMI_SHMEM_MSG_HEADER		0x18
+-#define SCMI_SHMEM_MSG_PAYLOAD		0x1c
+-
+-static int sky1_smc_scmi_power_set(struct device *dev, u32 domain, u32 state)
+-{
+-	void __iomem *shmem;
+-	struct arm_smccc_res res;
+-	u32 msg_header, resp_status;
+-	int timeout = 1000;
+-
+-	shmem = ioremap(SKY1_SMC_SCMI_SHMEM_PHYS, SKY1_SMC_SCMI_SHMEM_SIZE);
+-	if (!shmem)
+-		return -ENOMEM;
+-
+-	/* Wait for channel free */
+-	while (!(ioread32(shmem + SCMI_SHMEM_CHAN_STATUS) & BIT(0))) {
+-		if (--timeout <= 0) {
+-			dev_err(dev, "SCMI SMC channel busy timeout\n");
+-			iounmap(shmem);
+-			return -ETIMEDOUT;
+-		}
+-		udelay(10);
+-	}
+-
+-	/* Clear channel status */
+-	iowrite32(0, shmem + SCMI_SHMEM_CHAN_STATUS);
+-
+-	/* Polling mode (no interrupt) */
+-	iowrite32(0, shmem + SCMI_SHMEM_FLAGS);
+-
+-	/*
+-	 * Message header:
+-	 *   Bits  0-7:  MSG_ID = 0x04 (POWER_STATE_SET)
+-	 *   Bits  8-9:  MSG_TYPE = 0 (command)
+-	 *   Bits 10-17: PROTOCOL_ID = 0x11 (POWER)
+-	 *   Bits 18-27: TOKEN = 0
+-	 */
+-	msg_header = 0x04 | (0x11 << 10);
+-	iowrite32(msg_header, shmem + SCMI_SHMEM_MSG_HEADER);
+-
+-	/* Payload: flags(4) + domain(4) + state(4) = 12 bytes */
+-	iowrite32(0, shmem + SCMI_SHMEM_MSG_PAYLOAD);		/* flags: sync */
+-	iowrite32(domain, shmem + SCMI_SHMEM_MSG_PAYLOAD + 4);	/* domain_id */
+-	iowrite32(state, shmem + SCMI_SHMEM_MSG_PAYLOAD + 8);	/* power_state */
+-
+-	/* Length = msg_header(4) + payload(12) = 16 */
+-	iowrite32(16, shmem + SCMI_SHMEM_LENGTH);
+-
+-	/* SMC call: param_page = phys >> 12, param_offset = phys & 0xFFF */
+-	arm_smccc_smc(SKY1_SMC_SCMI_FUNC_ID,
+-		      SKY1_SMC_SCMI_SHMEM_PHYS >> 12,
+-		      SKY1_SMC_SCMI_SHMEM_PHYS & 0xFFF,
+-		      0, 0, 0, 0, 0, &res);
+-
+-	if (res.a0) {
+-		dev_err(dev, "SCMI SMC returned error: 0x%lx\n", res.a0);
+-		iounmap(shmem);
+-		return -EIO;
+-	}
+-
+-	/* Response: first word of payload is SCMI status */
+-	resp_status = ioread32(shmem + SCMI_SHMEM_MSG_PAYLOAD);
+-	iounmap(shmem);
+-
+-	if (resp_status != 0) {
+-		dev_err(dev, "SCMI POWER_STATE_SET domain %u failed: %d\n",
+-			domain, resp_status);
+-		return -EIO;
+-	}
+-
+-	dev_info(dev, "GPU power domain %u powered on via SMC SCMI\n", domain);
+-	return 0;
+-}
+-
+-static bool panthor_force_noncoherent;
+-module_param_named(force_noncoherent, panthor_force_noncoherent, bool, 0444);
+-MODULE_PARM_DESC(force_noncoherent,
+-	"Force GPU to non-coherent mode even when firmware reports coherent");
+-
+-static int panthor_gpu_coherency_init(struct panthor_device *ptdev)
+-{
+-	bool dma_coherent = device_get_dma_attr(ptdev->base.dev) == DEV_DMA_COHERENT;
+-
+-	/*
+-	 * Sky1 SoC: The GPU hardware supports full ACE (128/256-bit AMBA 4
+-	 * ACE master), but the platform uses ACE-Lite (DT system-coherency=0).
+-	 * The DPU is non-snooping and reads from SLC/DRAM, so ACE-Lite is the
+-	 * correct choice: GPU L2 evictions route through HN-F and are absorbed
+-	 * into the SLC, making WB data visible to the DPU without NC memattr.
+-	 */
+-	if (panthor_is_sky1(ptdev)) {
+-		ptdev->coherency_mode = PANTHOR_COHERENCY_ACE_LITE;
+-		drm_info(&ptdev->base, "Using ACE-Lite bus coherency (Sky1)\n");
+-	} else if (panthor_force_noncoherent || !dma_coherent) {
+-		ptdev->coherency_mode = PANTHOR_COHERENCY_NONE;
+-	} else {
+-		ptdev->coherency_mode = PANTHOR_COHERENCY_ACE_LITE;
+-	}
+-
+-	if (ptdev->coherency_mode == PANTHOR_COHERENCY_NONE)
+-		return 0;
+-
+-	/* Verify hardware supports the selected protocol. */
+-	if (gpu_read(ptdev, GPU_COHERENCY_FEATURES) &
+-	    GPU_COHERENCY_PROT_BIT(ACE_LITE))
+-		return 0;
+-
+-	drm_err(&ptdev->base, "ACE-Lite not supported by hardware");
+-	return -ENOTSUPP;
+-}
+-
+ static int panthor_clk_init(struct panthor_device *ptdev)
+ {
+-	/* Try vendor name first (gpu_clk_core), then unnamed default */
+-	ptdev->clks.core = devm_clk_get_optional(ptdev->base.dev, "gpu_clk_core");
++	ptdev->clks.core = devm_clk_get(ptdev->base.dev, NULL);
+ 	if (IS_ERR(ptdev->clks.core))
+ 		return dev_err_probe(ptdev->base.dev,
+ 				     PTR_ERR(ptdev->clks.core),
+-				     "get 'gpu_clk_core' clock failed");
+-	if (!ptdev->clks.core) {
+-		ptdev->clks.core = devm_clk_get(ptdev->base.dev, NULL);
+-		if (IS_ERR(ptdev->clks.core))
+-			return dev_err_probe(ptdev->base.dev,
+-					     PTR_ERR(ptdev->clks.core),
+-					     "get 'core' clock failed");
+-	}
++				     "get 'core' clock failed");
+ 
+-	/* Try vendor name first (gpu_clk_stacks), then mainline name (stacks) */
+-	ptdev->clks.stacks = devm_clk_get_optional(ptdev->base.dev, "gpu_clk_stacks");
++	ptdev->clks.stacks = devm_clk_get_optional(ptdev->base.dev, "stacks");
+ 	if (IS_ERR(ptdev->clks.stacks))
+ 		return dev_err_probe(ptdev->base.dev,
+ 				     PTR_ERR(ptdev->clks.stacks),
+-				     "get 'gpu_clk_stacks' clock failed");
+-	if (!ptdev->clks.stacks) {
+-		ptdev->clks.stacks = devm_clk_get_optional(ptdev->base.dev, "stacks");
+-		if (IS_ERR(ptdev->clks.stacks))
+-			return dev_err_probe(ptdev->base.dev,
+-					     PTR_ERR(ptdev->clks.stacks),
+-					     "get 'stacks' clock failed");
+-	}
++				     "get 'stacks' clock failed");
+ 
+ 	ptdev->clks.coregroup = devm_clk_get_optional(ptdev->base.dev, "coregroup");
+ 	if (IS_ERR(ptdev->clks.coregroup))
+@@ -211,128 +47,18 @@ static int panthor_clk_init(struct panthor_device *ptdev)
+ 				     PTR_ERR(ptdev->clks.coregroup),
+ 				     "get 'coregroup' clock failed");
+ 
+-	/* CIX Sky1 needs additional backup clocks */
+-	if (panthor_is_sky1(ptdev)) {
+-		ptdev->clks.backup[0] = devm_clk_get_optional(ptdev->base.dev, "gpu_clk_200M");
+-		if (IS_ERR(ptdev->clks.backup[0]))
+-			return dev_err_probe(ptdev->base.dev,
+-					     PTR_ERR(ptdev->clks.backup[0]),
+-					     "get 'gpu_clk_200M' clock failed");
+-
+-		ptdev->clks.backup[1] = devm_clk_get_optional(ptdev->base.dev, "gpu_clk_400M");
+-		if (IS_ERR(ptdev->clks.backup[1]))
+-			return dev_err_probe(ptdev->base.dev,
+-					     PTR_ERR(ptdev->clks.backup[1]),
+-					     "get 'gpu_clk_400M' clock failed");
+-	}
+-
+-	drm_dbg(&ptdev->base, "clock rate = %lu\n", clk_get_rate(ptdev->clks.core));
++	drm_info(&ptdev->base, "clock rate = %lu\n", clk_get_rate(ptdev->clks.core));
+ 	return 0;
+ }
+ 
+-static void panthor_pm_domain_fini(struct panthor_device *ptdev)
+-{
+-	int i;
+-
+-	for (i = 0; i < ARRAY_SIZE(ptdev->pm_domain_devs); i++) {
+-		if (!ptdev->pm_domain_devs[i])
+-			break;
+-
+-		if (ptdev->pm_domain_links[i])
+-			device_link_del(ptdev->pm_domain_links[i]);
+-
+-		dev_pm_domain_detach(ptdev->pm_domain_devs[i], true);
+-	}
+-}
+-
+-static int panthor_pm_domain_init(struct panthor_device *ptdev)
++static int panthor_init_power(struct device *dev)
+ {
+-	int err;
+-	int i, num_domains;
+-
+-	/*
+-	 * Under ACPI, power on the GPU domain via raw SMC SCMI to TFA.
+-	 * This replicates what smc_devpd does under DT: sends
+-	 * POWER_STATE_SET for SKY1_PD_GPU, which powers the domain
+-	 * and configures IDM non-secure access permissions.
+-	 */
+-	if (!ptdev->base.dev->of_node) {
+-		if (panthor_is_sky1(ptdev)) {
+-			err = sky1_smc_scmi_power_set(ptdev->base.dev,
+-						      SKY1_PD_GPU, 0);
+-			if (err)
+-				return err;
+-		}
+-		return 0;
+-	}
+-
+-	num_domains = of_count_phandle_with_args(ptdev->base.dev->of_node,
+-						 "power-domains",
+-						 "#power-domain-cells");
++	struct dev_pm_domain_list  *pd_list = NULL;
+ 
+-	/*
+-	 * Single domain is handled by the core, and, if only a single power
+-	 * the power domain is requested, the property is optional.
+-	 */
+-	if (num_domains < 2)
++	if (dev->pm_domain)
+ 		return 0;
+ 
+-	if (WARN(num_domains > ARRAY_SIZE(ptdev->pm_domain_devs),
+-			"Too many supplies in compatible structure.\n"))
+-		return -EINVAL;
+-
+-	for (i = 0; i < num_domains; i++) {
+-		ptdev->pm_domain_devs[i] =
+-			dev_pm_domain_attach_by_id(ptdev->base.dev, i);
+-		if (IS_ERR_OR_NULL(ptdev->pm_domain_devs[i])) {
+-			err = PTR_ERR(ptdev->pm_domain_devs[i]) ? : -ENODATA;
+-			ptdev->pm_domain_devs[i] = NULL;
+-			dev_err(ptdev->base.dev,
+-				"failed to get pm-domain %d: %d\n",
+-				i, err);
+-			goto err;
+-		}
+-		dev_dbg(ptdev->base.dev, "attached pm-domain %d: %s\n",
+-			i, dev_name(ptdev->pm_domain_devs[i]));
+-
+-		ptdev->pm_domain_links[i] = device_link_add(ptdev->base.dev,
+-				ptdev->pm_domain_devs[i], DL_FLAG_PM_RUNTIME |
+-				DL_FLAG_STATELESS | DL_FLAG_RPM_ACTIVE);
+-		if (!ptdev->pm_domain_links[i]) {
+-			dev_err(ptdev->pm_domain_devs[i],
+-				"adding device link failed!\n");
+-			err = -ENODEV;
+-			goto err;
+-		}
+-		dev_dbg(ptdev->base.dev, "pm-domain device link %d created\n", i);
+-	}
+-
+-	dev_dbg(ptdev->base.dev, "pm_domain_init completed\n");
+-	return 0;
+-
+-err:
+-	panthor_pm_domain_fini(ptdev);
+-	return err;
+-}
+-
+-static int panthor_resets_init(struct panthor_device *ptdev)
+-{
+-	/*
+-	 * Under ACPI, the reset framework has no DT bindings to look up.
+-	 * Use optional variant so NULL is returned instead of -ENOENT.
+-	 * reset_control_assert/deassert(NULL) are no-ops.
+-	 */
+-	if (!ptdev->base.dev->of_node)
+-		ptdev->gpu_reset = devm_reset_control_get_optional_exclusive(
+-					ptdev->base.dev, "gpu_reset");
+-	else
+-		ptdev->gpu_reset = devm_reset_control_get_optional(ptdev->base.dev,
+-								   "gpu_reset");
+-	if (IS_ERR(ptdev->gpu_reset))
+-		return dev_err_probe(ptdev->base.dev, PTR_ERR(ptdev->gpu_reset),
+-				     "failed to get gpu_reset\n");
+-
+-	return 0;
++	return devm_pm_domain_attach_list(dev, NULL, &pd_list);
+ }
+ 
+ void panthor_device_unplug(struct panthor_device *ptdev)
+@@ -445,7 +171,6 @@ int panthor_device_init(struct panthor_device *ptdev)
+ 	int ret;
+ 
+ 	ptdev->soc_data = of_device_get_match_data(ptdev->base.dev);
+-	dev_dbg(ptdev->base.dev, "probe starting\n");
+ 
+ 	init_completion(&ptdev->unplug.done);
+ 	ret = drmm_mutex_init(&ptdev->base, &ptdev->unplug.lock);
+@@ -498,96 +223,36 @@ int panthor_device_init(struct panthor_device *ptdev)
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = panthor_pm_domain_init(ptdev);
+-	if (ret)
++	ret = panthor_init_power(ptdev->base.dev);
++	if (ret < 0) {
++		drm_err(&ptdev->base, "init power domains failed, ret=%d", ret);
+ 		return ret;
++	}
+ 
+ 	ret = panthor_devfreq_init(ptdev);
+ 	if (ret)
+-		goto err_release_pm_domains;
+-
+-	ret = panthor_resets_init(ptdev);
+-	if (ret)
+-		goto err_release_pm_domains;
+-
+-	/* Sky1 uses resource 0 for RCSU, resource 1 for GPU registers.
+-	 * Other platforms use resource 0 for GPU registers.
+-	 */
+-	if (panthor_is_sky1(ptdev)) {
+-		ptdev->iomem = devm_platform_get_and_ioremap_resource(
+-				to_platform_device(ptdev->base.dev), 1, &res);
+-		if (IS_ERR(ptdev->iomem)) {
+-			ret = PTR_ERR(ptdev->iomem);
+-			goto err_release_pm_domains;
+-		}
++		return ret;
+ 
+-		ptdev->sky1_rcsu_reg = devm_platform_ioremap_resource(
+-				to_platform_device(ptdev->base.dev), 0);
+-		if (IS_ERR(ptdev->sky1_rcsu_reg)) {
+-			ret = PTR_ERR(ptdev->sky1_rcsu_reg);
+-			goto err_release_pm_domains;
+-		}
+-	} else {
+-		ptdev->iomem = devm_platform_get_and_ioremap_resource(
+-				to_platform_device(ptdev->base.dev), 0, &res);
+-		if (IS_ERR(ptdev->iomem)) {
+-			ret = PTR_ERR(ptdev->iomem);
+-			goto err_release_pm_domains;
+-		}
+-	}
++	ptdev->iomem = devm_platform_get_and_ioremap_resource(to_platform_device(ptdev->base.dev),
++							      0, &res);
++	if (IS_ERR(ptdev->iomem))
++		return PTR_ERR(ptdev->iomem);
+ 
+ 	ptdev->phys_addr = res->start;
+ 
+ 	ret = devm_pm_runtime_enable(ptdev->base.dev);
+ 	if (ret)
+-		goto err_release_pm_domains;
++		return ret;
+ 
+ 	ret = pm_runtime_resume_and_get(ptdev->base.dev);
+ 	if (ret)
+-		goto err_release_pm_domains;
++		return ret;
+ 
+ 	/* If PM is disabled, we need to call panthor_device_resume() manually. */
+ 	if (!IS_ENABLED(CONFIG_PM)) {
+ 		ret = panthor_device_resume(ptdev->base.dev);
+ 		if (ret)
+-			goto err_rpm_put;
+-	}
+-
+-	/*
+-	 * Sky1 GPU power-on sequence (from CIX GPU Development Guide):
+-	 * 1. Power domain on  (done in panthor_pm_domain_init)
+-	 * 2. Clock enable      (done in panthor_device_resume via pm_runtime)
+-	 * 3. IP Reset assert
+-	 * 4. IP Reset de-assert
+-	 * 5. Qchannel clock gating enable
+-	 */
+-	if (panthor_is_sky1(ptdev)) {
+-		if (ptdev->gpu_reset) {
+-			ret = reset_control_assert(ptdev->gpu_reset);
+-			if (ret) {
+-				dev_err(ptdev->base.dev, "GPU reset assert failed: %d\n", ret);
+-				goto err_rpm_put;
+-			}
+-
+-			usleep_range(10, 20);
+-
+-			ret = reset_control_deassert(ptdev->gpu_reset);
+-			if (ret) {
+-				dev_err(ptdev->base.dev, "GPU reset deassert failed: %d\n", ret);
+-				goto err_rpm_put;
+-			}
+-
+-		}
+-
+-		if (ptdev->sky1_rcsu_reg) {
+-			u32 pgctrl;
+-
+-			pgctrl = readl(ptdev->sky1_rcsu_reg + 0x218);
+-			pgctrl |= BIT(0);  /* QCHANNEL_CLOCK_GATE_ENABLE */
+-			writel(pgctrl, ptdev->sky1_rcsu_reg + 0x218);
+-
+-			dev_dbg(ptdev->base.dev, "qchannel clock gating enabled\n");
+-		}
++			return ret;
+ 	}
+ 
+ 	ret = panthor_hw_init(ptdev);
+@@ -606,12 +271,7 @@ int panthor_device_init(struct panthor_device *ptdev)
+ 	if (ret)
+ 		goto err_unplug_gpu;
+ 
+-	if (ptdev->coherency_mode == PANTHOR_COHERENCY_NONE &&
+-	    !device_iommu_mapped(ptdev->base.dev))
+-		drm_info(&ptdev->base,
+-			 "GPU not behind IOMMU; using non-cacheable memory attributes\n");
+-
+-	ret = panthor_mmu_init(ptdev);
++	ret = panthor_gem_shrinker_init(ptdev);
+ 	if (ret)
+ 		goto err_unplug_gpu;
+ 
+@@ -664,9 +324,6 @@ int panthor_device_init(struct panthor_device *ptdev)
+ 
+ err_rpm_put:
+ 	pm_runtime_put_sync_suspend(ptdev->base.dev);
+-
+-err_release_pm_domains:
+-	panthor_pm_domain_fini(ptdev);
+ 	return ret;
+ }
+ 
+diff --git a/drivers/gpu/drm/panthor/panthor_device.h b/drivers/gpu/drm/panthor/panthor_device.h
+index f3bf6aa04641..98828e81db0b 100644
+--- a/drivers/gpu/drm/panthor/panthor_device.h
++++ b/drivers/gpu/drm/panthor/panthor_device.h
+@@ -6,7 +6,6 @@
+ #ifndef __PANTHOR_DEVICE_H__
+ #define __PANTHOR_DEVICE_H__
+ 
+-#include <linux/acpi.h>
+ #include <linux/atomic.h>
+ #include <linux/io-pgtable.h>
+ #include <linux/regulator/consumer.h>
+@@ -20,27 +19,6 @@
+ #include <drm/gpu_scheduler.h>
+ #include <drm/panthor_drm.h>
+ 
+-/**
+- * enum panthor_coherency_mode - GPU bus coherency protocol
+- *
+- * Determines how the GPU participates in the system coherency fabric.
+- * Values match the GPU_COHERENCY_PROTOCOL register encoding.
+- */
+-enum panthor_coherency_mode {
+-	/** @PANTHOR_COHERENCY_ACE_LITE: GPU is RN-I on CHI fabric.
+-	 * L2 evictions route through HN-F/SLC, making WB data visible
+-	 * to non-snooping masters. No NC memattr needed. */
+-	PANTHOR_COHERENCY_ACE_LITE = 0,
+-
+-	/** @PANTHOR_COHERENCY_ACE: Full CPU-GPU coherency via snooping.
+-	 * Page table walks use outer-shareable, GEM uses cached mappings. */
+-	PANTHOR_COHERENCY_ACE = 1,
+-
+-	/** @PANTHOR_COHERENCY_NONE: GPU outside coherency domain.
+-	 * Requires NC memattr when no IOMMU is present. */
+-	PANTHOR_COHERENCY_NONE = 31,
+-};
+-
+ struct panthor_csf;
+ struct panthor_csf_ctx;
+ struct panthor_device;
+@@ -162,18 +140,6 @@ struct panthor_device {
+ 	/** @iomem: CPU mapping of the IOMEM region. */
+ 	void __iomem *iomem;
+ 
+-	/** @sky1_rcsu_reg: Sky1 RCSU register mapping (optional). */
+-	void __iomem *sky1_rcsu_reg;
+-
+-	/** @pm_domain_devs: PM domain device instances for devices with more than one PM domain. */
+-	struct device *pm_domain_devs[2];
+-
+-	/** @pm_domain_links: PM domain device links for devices with more than one PM domain. */
+-	struct device_link *pm_domain_links[2];
+-
+-	/** @gpu_reset: Reset control for GPU (optional, Sky1). */
+-	struct reset_control *gpu_reset;
+-
+ 	/** @clks: GPU clocks. */
+ 	struct {
+ 		/** @core: Core clock. */
+@@ -184,13 +150,10 @@ struct panthor_device {
+ 
+ 		/** @coregroup: Core group clock. This clock is optional. */
+ 		struct clk *coregroup;
+-
+-		/** @backup: Sky1 backup clocks. These clocks are optional. */
+-		struct clk *backup[2];
+ 	} clks;
+ 
+-	/** @coherency_mode: GPU bus coherency protocol. */
+-	enum panthor_coherency_mode coherency_mode;
++	/** @coherent: True if the CPU/GPU are memory coherent. */
++	bool coherent;
+ 
+ 	/** @gpu_info: GPU information. */
+ 	struct drm_panthor_gpu_info gpu_info;
+diff --git a/drivers/gpu/drm/panthor/panthor_drv.c b/drivers/gpu/drm/panthor/panthor_drv.c
+index a65450087936..e8dc4096c1d2 100644
+--- a/drivers/gpu/drm/panthor/panthor_drv.c
++++ b/drivers/gpu/drm/panthor/panthor_drv.c
+@@ -1874,20 +1874,11 @@ static const struct panthor_soc_data soc_data_mediatek_mt8196 = {
+ static const struct of_device_id dt_match[] = {
+ 	{ .compatible = "mediatek,mt8196-mali", .data = &soc_data_mediatek_mt8196, },
+ 	{ .compatible = "rockchip,rk3588-mali" },
+-	{ .compatible = "arm,mali-valhall" },
+ 	{ .compatible = "arm,mali-valhall-csf" },
+ 	{}
+ };
+ MODULE_DEVICE_TABLE(of, dt_match);
+ 
+-#ifdef CONFIG_ACPI
+-static const struct acpi_device_id panthor_acpi_match[] = {
+-	{ "CIXH5000", 0 },
+-	{ }
+-};
+-MODULE_DEVICE_TABLE(acpi, panthor_acpi_match);
+-#endif
+-
+ static DEFINE_RUNTIME_DEV_PM_OPS(panthor_pm_ops,
+ 				 panthor_device_suspend,
+ 				 panthor_device_resume,
+@@ -1900,7 +1891,6 @@ static struct platform_driver panthor_driver = {
+ 		.name = "panthor",
+ 		.pm = pm_ptr(&panthor_pm_ops),
+ 		.of_match_table = dt_match,
+-		.acpi_match_table = ACPI_PTR(panthor_acpi_match),
+ 		.dev_groups = panthor_groups,
+ 	},
+ };
+diff --git a/drivers/gpu/drm/panthor/panthor_fw.c b/drivers/gpu/drm/panthor/panthor_fw.c
+index 6055a2fe66d8..fa88b2f9da76 100644
+--- a/drivers/gpu/drm/panthor/panthor_fw.c
++++ b/drivers/gpu/drm/panthor/panthor_fw.c
+@@ -1493,15 +1493,7 @@ int panthor_fw_init(struct panthor_device *ptdev)
+ 	INIT_LIST_HEAD(&fw->sections);
+ 	INIT_DELAYED_WORK(&fw->watchdog.ping_work, panthor_fw_ping_work);
+ 
+-	if (has_acpi_companion(ptdev->base.dev)) {
+-		irq = platform_get_irq(to_platform_device(ptdev->base.dev), 0);
+-	} else {
+-		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "JOB");
+-		if (irq <= 0) {
+-			/* Try lowercase for non-Sky1 platforms */
+-			irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "job");
+-		}
+-	}
++	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "job");
+ 	if (irq <= 0)
+ 		return -ENODEV;
+ 
+diff --git a/drivers/gpu/drm/panthor/panthor_gem.c b/drivers/gpu/drm/panthor/panthor_gem.c
+index 13ccdc156d56..54535bae2b0c 100644
+--- a/drivers/gpu/drm/panthor/panthor_gem.c
++++ b/drivers/gpu/drm/panthor/panthor_gem.c
+@@ -988,9 +988,13 @@ panthor_gem_alloc_object(u32 flags)
+ 	if (!bo)
+ 		return ERR_PTR(-ENOMEM);
+ 
+-	obj->base.base.funcs = &panthor_gem_funcs;
+-	obj->base.map_wc = ptdev->coherency_mode != PANTHOR_COHERENCY_ACE;
+-	mutex_init(&obj->label.lock);
++	bo->reclaim_state = PANTHOR_GEM_UNRECLAIMABLE;
++	bo->base.funcs = &panthor_gem_funcs;
++	bo->flags = flags;
++	mutex_init(&bo->label.lock);
++	panthor_gem_debugfs_bo_init(bo);
++	return bo;
++}
+ 
+ static struct panthor_gem_object *
+ panthor_gem_create(struct drm_device *dev, size_t size, uint32_t flags,
+diff --git a/drivers/gpu/drm/panthor/panthor_gpu.c b/drivers/gpu/drm/panthor/panthor_gpu.c
+index e0427a5e1b5f..c013d6bf9a59 100644
+--- a/drivers/gpu/drm/panthor/panthor_gpu.c
++++ b/drivers/gpu/drm/panthor/panthor_gpu.c
+@@ -6,7 +6,6 @@
+ #include <linux/bitfield.h>
+ #include <linux/bitmap.h>
+ #include <linux/delay.h>
+-#include <linux/of.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/interrupt.h>
+ #include <linux/io.h>
+@@ -60,16 +59,8 @@ struct panthor_gpu {
+ 
+ static void panthor_gpu_coherency_set(struct panthor_device *ptdev)
+ {
+-	u32 val = ptdev->coherency_mode;
+-
+-	if (val != PANTHOR_COHERENCY_NONE) {
+-		u32 features = gpu_read(ptdev, GPU_COHERENCY_FEATURES);
+-
+-		if (features & GPU_COHERENCY_SHAREABLE_CACHE)
+-			val |= GPU_COHERENCY_SHAREABLE_CACHE;
+-	}
+-
+-	gpu_write(ptdev, GPU_COHERENCY_PROTOCOL, val);
++	gpu_write(ptdev->gpu->iomem, GPU_COHERENCY_PROTOCOL,
++		  ptdev->gpu_info.selected_coherency);
+ }
+ 
+ static void panthor_gpu_l2_config_set(struct panthor_device *ptdev)
+@@ -174,15 +165,7 @@ int panthor_gpu_init(struct panthor_device *ptdev)
+ 	if (ret)
+ 		return ret;
+ 
+-	if (has_acpi_companion(ptdev->base.dev)) {
+-		irq = platform_get_irq(to_platform_device(ptdev->base.dev), 2);
+-	} else {
+-		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "GPU");
+-		if (irq < 0) {
+-			/* Try lowercase for non-Sky1 platforms */
+-			irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "gpu");
+-		}
+-	}
++	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "gpu");
+ 	if (irq < 0)
+ 		return irq;
+ 
+@@ -331,26 +314,6 @@ int panthor_gpu_l2_power_on(struct panthor_device *ptdev)
+ 	panthor_gpu_coherency_set(ptdev);
+ 	panthor_gpu_l2_config_set(ptdev);
+ 
+-	/* CIX Sky1 needs special PHBA setup before L2 activation */
+-	if (of_device_is_compatible(ptdev->base.dev->of_node, "arm,mali-valhall")) {
+-		gpu_write(ptdev, GPU_SYSC_PBHA_OVERRIDE(3), 0x22000000);
+-		gpu_write(ptdev, GPU_SYSC_ALLOC(0), 0x00230000);
+-		gpu_write(ptdev, GPU_SYSC_ALLOC(1), 0x00000023);
+-		gpu_write(ptdev, GPU_SYSC_ALLOC(2), 0x00000000);
+-		gpu_write(ptdev, GPU_SYSC_ALLOC(3), 0x00000000);
+-		gpu_write(ptdev, GPU_SYSC_ALLOC(4), 0x00523222);
+-		gpu_write(ptdev, GPU_SYSC_ALLOC(5), 0x00523200);
+-		gpu_write(ptdev, GPU_SYSC_ALLOC(6), 0x00000022);
+-		gpu_write(ptdev, GPU_SYSC_ALLOC(7), 0x00000032);
+-
+-		/* Required for LS_MEM_* related counters */
+-		gpu_write(ptdev, 0x306C, 0xFFFFFFFF);
+-		gpu_write(ptdev, 0x3070, 0xFFFFFFFF);
+-		gpu_write(ptdev, 0x307C, 0xFFFFFFFF);
+-		gpu_write(ptdev, 0x3074, 0xFFFFFFFF);
+-		gpu_write(ptdev, 0x3068, 0x1);
+-	}
+-
+ 	return panthor_gpu_power_on(ptdev, L2, 1, 20000);
+ }
+ 
+diff --git a/drivers/gpu/drm/panthor/panthor_hw.c b/drivers/gpu/drm/panthor/panthor_hw.c
+index 540bcd2a3bfc..7e315708ca7c 100644
+--- a/drivers/gpu/drm/panthor/panthor_hw.c
++++ b/drivers/gpu/drm/panthor/panthor_hw.c
+@@ -1,7 +1,8 @@
+ // SPDX-License-Identifier: GPL-2.0 or MIT
+ /* Copyright 2025 ARM Limited. All rights reserved. */
+ 
+-#include <linux/of.h>
++#include <linux/nvmem-consumer.h>
++#include <linux/platform_device.h>
+ 
+ #include <drm/drm_print.h>
+ 
+@@ -194,21 +195,7 @@ static int panthor_gpu_info_init(struct panthor_device *ptdev)
+ {
+ 	unsigned int i;
+ 
+-	ptdev->gpu_info.gpu_id = gpu_read(ptdev, GPU_ID);
+-	ptdev->gpu_info.csf_id = gpu_read(ptdev, GPU_CSF_ID);
+-	ptdev->gpu_info.gpu_rev = gpu_read(ptdev, GPU_REVID);
+-	ptdev->gpu_info.core_features = gpu_read(ptdev, GPU_CORE_FEATURES);
+-	ptdev->gpu_info.l2_features = gpu_read(ptdev, GPU_L2_FEATURES);
+-	ptdev->gpu_info.tiler_features = gpu_read(ptdev, GPU_TILER_FEATURES);
+-	ptdev->gpu_info.mem_features = gpu_read(ptdev, GPU_MEM_FEATURES);
+-	ptdev->gpu_info.mmu_features = gpu_read(ptdev, GPU_MMU_FEATURES);
+-	ptdev->gpu_info.thread_features = gpu_read(ptdev, GPU_THREAD_FEATURES);
+-	ptdev->gpu_info.max_threads = gpu_read(ptdev, GPU_THREAD_MAX_THREADS);
+-	ptdev->gpu_info.thread_max_workgroup_size = gpu_read(ptdev, GPU_THREAD_MAX_WORKGROUP_SIZE);
+-	ptdev->gpu_info.thread_max_barrier_size = gpu_read(ptdev, GPU_THREAD_MAX_BARRIER_SIZE);
+-	ptdev->gpu_info.coherency_features = gpu_read(ptdev, GPU_COHERENCY_FEATURES);
+-	for (i = 0; i < 4; i++)
+-		ptdev->gpu_info.texture_features[i] = gpu_read(ptdev, GPU_TEXTURE_FEATURES(i));
++	void __iomem *gpu_iomem = ptdev->iomem + GPU_CONTROL_BASE;
+ 
+ 	ptdev->gpu_info.csf_id = gpu_read(gpu_iomem, GPU_CSF_ID);
+ 	ptdev->gpu_info.gpu_rev = gpu_read(gpu_iomem, GPU_REVID);
+@@ -246,18 +233,7 @@ static int panthor_gpu_info_init(struct panthor_device *ptdev)
+ 		ptdev->gpu_info.l2_present = gpu_read64(gpu_iomem, GPU_L2_PRESENT);
+ 	}
+ 
+-	/* On CIX Sky1 SoC some shader cores can be disabled via RCSU */
+-	if (of_device_is_compatible(ptdev->base.dev->of_node, "arm,mali-valhall") &&
+-	    ptdev->sky1_rcsu_reg) {
+-		u32 sky1_harvesting_reg_val = readl(ptdev->sky1_rcsu_reg + 0x304);
+-		u64 sky1_harvesting_core_mask = ~((sky1_harvesting_reg_val & 0xFFFFFF0) >> 4) & 0x550555;
+-
+-		ptdev->gpu_info.shader_present &= sky1_harvesting_core_mask;
+-
+-		drm_info(&ptdev->base,
+-			 "sky1 harvesting: reg=0x%x core_mask=0x%llx",
+-			 sky1_harvesting_reg_val, sky1_harvesting_core_mask);
+-	}
++	return overload_shader_present(ptdev);
+ }
+ 
+ static int panthor_hw_info_init(struct panthor_device *ptdev)
+diff --git a/drivers/gpu/drm/panthor/panthor_mmu.c b/drivers/gpu/drm/panthor/panthor_mmu.c
+index 15a1a8009e6f..e10dbd18d8cf 100644
+--- a/drivers/gpu/drm/panthor/panthor_mmu.c
++++ b/drivers/gpu/drm/panthor/panthor_mmu.c
+@@ -780,7 +780,7 @@ int panthor_vm_active(struct panthor_vm *vm)
+ 		   AS_TRANSCFG_PTW_RA |
+ 		   AS_TRANSCFG_ADRMODE_AARCH64_4K |
+ 		   AS_TRANSCFG_INA_BITS(55 - va_bits);
+-	if (ptdev->coherency_mode == PANTHOR_COHERENCY_ACE)
++	if (ptdev->coherent)
+ 		transcfg |= AS_TRANSCFG_PTW_SH_OS;
+ 
+ 	/* If the VM is re-activated, we clear the fault. */
+@@ -2095,8 +2095,7 @@ void panthor_vm_heaps_sizes(struct panthor_file *pfile, struct drm_memory_stats
+ 	xa_unlock(&pfile->vms->xa);
+ }
+ 
+-static u64 mair_to_memattr(u64 mair, enum panthor_coherency_mode mode,
+-			   bool has_iommu)
++static u64 mair_to_memattr(u64 mair, bool coherent)
+ {
+ 	u64 memattr = 0;
+ 	u32 i;
+@@ -2114,27 +2113,19 @@ static u64 mair_to_memattr(u64 mair, enum panthor_coherency_mode mode,
+ 			out_attr = AS_MEMATTR_AARCH64_INNER_OUTER_NC |
+ 				   AS_MEMATTR_AARCH64_SH_MIDGARD_INNER |
+ 				   AS_MEMATTR_AARCH64_INNER_ALLOC_EXPL(false, false);
+-		} else if (mode != PANTHOR_COHERENCY_ACE && !has_iommu) {
+-			/* GPU not fully coherent and no IOMMU to override
+-			 * memory attributes at the bus level. Even with
+-			 * ACE-Lite, GPU L2 may not evict to SLC in time
+-			 * for non-snooping masters like the DPU.
+-			 * Force NC to guarantee DRAM visibility.
+-			 */
+-			out_attr = AS_MEMATTR_AARCH64_INNER_OUTER_NC |
+-				   AS_MEMATTR_AARCH64_SH_MIDGARD_INNER |
+-				   AS_MEMATTR_AARCH64_INNER_ALLOC_EXPL(false, false);
+ 		} else {
+ 			out_attr = AS_MEMATTR_AARCH64_INNER_OUTER_WB |
+ 				   AS_MEMATTR_AARCH64_INNER_ALLOC_EXPL(inner & 1, inner & 2);
+-			/* Use SH_MIDGARD_INNER mode when device isn't fully
+-			 * coherent, so SH_IS, which is used when IOMMU_CACHE
+-			 * is set, maps to Mali's internal-shareable mode.
++			/* Use SH_MIDGARD_INNER mode when device isn't coherent,
++			 * so SH_IS, which is used when IOMMU_CACHE is set, maps
++			 * to Mali's internal-shareable mode. As per the Mali
++			 * Spec, inner and outer-shareable modes aren't allowed
++			 * for WB memory when coherency is disabled.
+ 			 * Use SH_CPU_INNER mode when coherency is enabled, so
+-			 * that SH_IS actually maps to the standard definition
+-			 * of inner-shareable.
++			 * that SH_IS actually maps to the standard definition of
++			 * inner-shareable.
+ 			 */
+-			if (mode != PANTHOR_COHERENCY_ACE)
++			if (!coherent)
+ 				out_attr |= AS_MEMATTR_AARCH64_SH_MIDGARD_INNER;
+ 			else
+ 				out_attr |= AS_MEMATTR_AARCH64_SH_CPU_INNER;
+@@ -2794,7 +2785,7 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
+ 		.pgsize_bitmap	= SZ_4K | SZ_2M,
+ 		.ias		= va_bits,
+ 		.oas		= pa_bits,
+-		.coherent_walk	= ptdev->coherency_mode == PANTHOR_COHERENCY_ACE,
++		.coherent_walk	= ptdev->coherent,
+ 		.tlb		= &mmu_tlb_ops,
+ 		.iommu_dev	= ptdev->base.dev,
+ 		.alloc		= alloc_pt,
+@@ -2817,8 +2808,7 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
+ 		goto err_sched_fini;
+ 
+ 	mair = io_pgtable_ops_to_pgtable(vm->pgtbl_ops)->cfg.arm_lpae_s1_cfg.mair;
+-	vm->memattr = mair_to_memattr(mair, ptdev->coherency_mode,
+-				      device_iommu_mapped(ptdev->base.dev));
++	vm->memattr = mair_to_memattr(mair, ptdev->coherent);
+ 
+ 	mutex_lock(&ptdev->mmu->vm.lock);
+ 	list_add_tail(&vm->node, &ptdev->mmu->vm.list);
+@@ -3268,15 +3258,7 @@ int panthor_mmu_init(struct panthor_device *ptdev)
+ 	mmu->iomem = ptdev->iomem + MMU_AS_BASE;
+ 	ptdev->mmu = mmu;
+ 
+-	if (has_acpi_companion(ptdev->base.dev)) {
+-		irq = platform_get_irq(to_platform_device(ptdev->base.dev), 1);
+-	} else {
+-		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "MMU");
+-		if (irq <= 0) {
+-			/* Try lowercase for non-Sky1 platforms */
+-			irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "mmu");
+-		}
+-	}
++	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "mmu");
+ 	if (irq <= 0)
+ 		return -ENODEV;
+ 
+diff --git a/drivers/gpu/drm/panthor/panthor_regs.h b/drivers/gpu/drm/panthor/panthor_regs.h
+deleted file mode 100644
+index 77add31facd6..000000000000
+--- a/drivers/gpu/drm/panthor/panthor_regs.h
++++ /dev/null
+@@ -1,296 +0,0 @@
+-/* SPDX-License-Identifier: GPL-2.0 or MIT */
+-/* Copyright 2018 Marty E. Plummer <hanetzer@startmail.com> */
+-/* Copyright 2019 Linaro, Ltd, Rob Herring <robh@kernel.org> */
+-/* Copyright 2023 Collabora ltd. */
+-/*
+- * Register definitions based on mali_kbase_gpu_regmap.h and
+- * mali_kbase_gpu_regmap_csf.h
+- * (C) COPYRIGHT 2010-2022 ARM Limited. All rights reserved.
+- */
+-#ifndef __PANTHOR_REGS_H__
+-#define __PANTHOR_REGS_H__
+-
+-#define GPU_ID						0x0
+-#define   GPU_ARCH_MAJOR(x)				((x) >> 28)
+-#define   GPU_ARCH_MINOR(x)				(((x) & GENMASK(27, 24)) >> 24)
+-#define   GPU_ARCH_REV(x)				(((x) & GENMASK(23, 20)) >> 20)
+-#define   GPU_PROD_MAJOR(x)				(((x) & GENMASK(19, 16)) >> 16)
+-#define   GPU_VER_MAJOR(x)				(((x) & GENMASK(15, 12)) >> 12)
+-#define   GPU_VER_MINOR(x)				(((x) & GENMASK(11, 4)) >> 4)
+-#define   GPU_VER_STATUS(x)				((x) & GENMASK(3, 0))
+-
+-#define GPU_L2_FEATURES					0x4
+-#define  GPU_L2_FEATURES_LINE_SIZE(x)			(1 << ((x) & GENMASK(7, 0)))
+-
+-#define GPU_CORE_FEATURES				0x8
+-
+-#define GPU_TILER_FEATURES				0xC
+-#define GPU_MEM_FEATURES				0x10
+-#define   GROUPS_L2_COHERENT				BIT(0)
+-
+-#define GPU_MMU_FEATURES				0x14
+-#define  GPU_MMU_FEATURES_VA_BITS(x)			((x) & GENMASK(7, 0))
+-#define  GPU_MMU_FEATURES_PA_BITS(x)			(((x) >> 8) & GENMASK(7, 0))
+-#define GPU_AS_PRESENT					0x18
+-#define GPU_CSF_ID					0x1C
+-
+-#define GPU_INT_RAWSTAT					0x20
+-#define GPU_INT_CLEAR					0x24
+-#define GPU_INT_MASK					0x28
+-#define GPU_INT_STAT					0x2c
+-#define   GPU_IRQ_FAULT					BIT(0)
+-#define   GPU_IRQ_PROTM_FAULT				BIT(1)
+-#define   GPU_IRQ_RESET_COMPLETED			BIT(8)
+-#define   GPU_IRQ_POWER_CHANGED				BIT(9)
+-#define   GPU_IRQ_POWER_CHANGED_ALL			BIT(10)
+-#define   GPU_IRQ_CLEAN_CACHES_COMPLETED		BIT(17)
+-#define   GPU_IRQ_DOORBELL_MIRROR			BIT(18)
+-#define   GPU_IRQ_MCU_STATUS_CHANGED			BIT(19)
+-#define GPU_CMD						0x30
+-#define   GPU_CMD_DEF(type, payload)			((type) | ((payload) << 8))
+-#define   GPU_SOFT_RESET				GPU_CMD_DEF(1, 1)
+-#define   GPU_HARD_RESET				GPU_CMD_DEF(1, 2)
+-#define   CACHE_CLEAN					BIT(0)
+-#define   CACHE_INV					BIT(1)
+-#define   GPU_FLUSH_CACHES(l2, lsc, oth)		\
+-	  GPU_CMD_DEF(4, ((l2) << 0) | ((lsc) << 4) | ((oth) << 8))
+-
+-#define GPU_STATUS					0x34
+-#define   GPU_STATUS_ACTIVE				BIT(0)
+-#define   GPU_STATUS_PWR_ACTIVE				BIT(1)
+-#define   GPU_STATUS_PAGE_FAULT				BIT(4)
+-#define   GPU_STATUS_PROTM_ACTIVE			BIT(7)
+-#define   GPU_STATUS_DBG_ENABLED			BIT(8)
+-
+-#define GPU_FAULT_STATUS				0x3C
+-#define GPU_FAULT_ADDR					0x40
+-#define GPU_L2_CONFIG					0x48
+-#define   GPU_L2_CONFIG_ASN_HASH_ENABLE			BIT(24)
+-
+-#define GPU_PWR_KEY					0x50
+-#define  GPU_PWR_KEY_UNLOCK				0x2968A819
+-#define GPU_PWR_OVERRIDE0				0x54
+-#define GPU_PWR_OVERRIDE1				0x58
+-
+-#define GPU_FEATURES					0x60
+-#define   GPU_FEATURES_RAY_INTERSECTION			BIT(2)
+-#define   GPU_FEATURES_RAY_TRAVERSAL			BIT(5)
+-
+-#define GPU_TIMESTAMP_OFFSET				0x88
+-#define GPU_CYCLE_COUNT					0x90
+-#define GPU_TIMESTAMP					0x98
+-
+-#define GPU_THREAD_MAX_THREADS				0xA0
+-#define GPU_THREAD_MAX_WORKGROUP_SIZE			0xA4
+-#define GPU_THREAD_MAX_BARRIER_SIZE			0xA8
+-#define GPU_THREAD_FEATURES				0xAC
+-
+-#define GPU_TEXTURE_FEATURES(n)				(0xB0 + ((n) * 4))
+-
+-#define GPU_SHADER_PRESENT				0x100
+-#define GPU_TILER_PRESENT				0x110
+-#define GPU_L2_PRESENT					0x120
+-
+-#define SHADER_READY					0x140
+-#define TILER_READY					0x150
+-#define L2_READY					0x160
+-
+-#define SHADER_PWRON					0x180
+-#define TILER_PWRON					0x190
+-#define L2_PWRON					0x1A0
+-
+-#define SHADER_PWROFF					0x1C0
+-#define TILER_PWROFF					0x1D0
+-#define L2_PWROFF					0x1E0
+-
+-#define SHADER_PWRTRANS					0x200
+-#define TILER_PWRTRANS					0x210
+-#define L2_PWRTRANS					0x220
+-
+-#define SHADER_PWRACTIVE				0x240
+-#define TILER_PWRACTIVE					0x250
+-#define L2_PWRACTIVE					0x260
+-
+-#define GPU_REVID					0x280
+-
+-#define GPU_ASN_HASH(n)					(0x2C0 + ((n) * 4))
+-
+-#define GPU_COHERENCY_FEATURES				0x300
+-#define GPU_COHERENCY_PROT_BIT(name)			BIT(GPU_COHERENCY_  ## name)
+-
+-#define GPU_COHERENCY_PROTOCOL				0x304
+-#define   GPU_COHERENCY_ACE_LITE			0
+-#define   GPU_COHERENCY_ACE				1
+-#define   GPU_COHERENCY_NONE				31
+-#define   GPU_COHERENCY_SHAREABLE_CACHE			BIT(5)
+-
+-#define MCU_CONTROL					0x700
+-#define MCU_CONTROL_ENABLE				1
+-#define MCU_CONTROL_AUTO				2
+-#define MCU_CONTROL_DISABLE				0
+-
+-#define MCU_STATUS					0x704
+-#define MCU_STATUS_DISABLED				0
+-#define MCU_STATUS_ENABLED				1
+-#define MCU_STATUS_HALT					2
+-#define MCU_STATUS_FATAL				3
+-
+-/* Job Control regs */
+-#define JOB_INT_RAWSTAT					0x1000
+-#define JOB_INT_CLEAR					0x1004
+-#define JOB_INT_MASK					0x1008
+-#define JOB_INT_STAT					0x100c
+-#define   JOB_INT_GLOBAL_IF				BIT(31)
+-#define   JOB_INT_CSG_IF(x)				BIT(x)
+-
+-/* MMU regs */
+-#define MMU_INT_RAWSTAT					0x2000
+-#define MMU_INT_CLEAR					0x2004
+-#define MMU_INT_MASK					0x2008
+-#define MMU_INT_STAT					0x200c
+-
+-/* AS_COMMAND register commands */
+-
+-#define MMU_BASE					0x2400
+-#define MMU_AS_SHIFT					6
+-#define MMU_AS(as)					(MMU_BASE + ((as) << MMU_AS_SHIFT))
+-
+-#define AS_TRANSTAB(as)					(MMU_AS(as) + 0x0)
+-#define AS_MEMATTR(as)					(MMU_AS(as) + 0x8)
+-#define   AS_MEMATTR_AARCH64_INNER_ALLOC_IMPL		(2 << 2)
+-#define   AS_MEMATTR_AARCH64_INNER_ALLOC_EXPL(w, r)	((3 << 2) | \
+-							 ((w) ? BIT(0) : 0) | \
+-							 ((r) ? BIT(1) : 0))
+-#define   AS_MEMATTR_AARCH64_SH_MIDGARD_INNER		(0 << 4)
+-#define   AS_MEMATTR_AARCH64_SH_CPU_INNER		(1 << 4)
+-#define   AS_MEMATTR_AARCH64_SH_CPU_INNER_SHADER_COH	(2 << 4)
+-#define   AS_MEMATTR_AARCH64_SHARED			(0 << 6)
+-#define   AS_MEMATTR_AARCH64_INNER_OUTER_NC		(1 << 6)
+-#define   AS_MEMATTR_AARCH64_INNER_OUTER_WB		(2 << 6)
+-#define   AS_MEMATTR_AARCH64_FAULT			(3 << 6)
+-#define AS_LOCKADDR(as)					(MMU_AS(as) + 0x10)
+-#define AS_COMMAND(as)					(MMU_AS(as) + 0x18)
+-#define   AS_COMMAND_NOP				0
+-#define   AS_COMMAND_UPDATE				1
+-#define   AS_COMMAND_LOCK				2
+-#define   AS_COMMAND_UNLOCK				3
+-#define   AS_COMMAND_FLUSH_PT				4
+-#define   AS_COMMAND_FLUSH_MEM				5
+-#define   AS_LOCK_REGION_MIN_SIZE			(1ULL << 15)
+-#define AS_FAULTSTATUS(as)				(MMU_AS(as) + 0x1C)
+-#define  AS_FAULTSTATUS_ACCESS_TYPE_MASK		(0x3 << 8)
+-#define  AS_FAULTSTATUS_ACCESS_TYPE_ATOMIC		(0x0 << 8)
+-#define  AS_FAULTSTATUS_ACCESS_TYPE_EX			(0x1 << 8)
+-#define  AS_FAULTSTATUS_ACCESS_TYPE_READ		(0x2 << 8)
+-#define  AS_FAULTSTATUS_ACCESS_TYPE_WRITE		(0x3 << 8)
+-#define AS_FAULTADDRESS(as)				(MMU_AS(as) + 0x20)
+-#define AS_STATUS(as)					(MMU_AS(as) + 0x28)
+-#define   AS_STATUS_AS_ACTIVE				BIT(0)
+-#define AS_TRANSCFG(as)					(MMU_AS(as) + 0x30)
+-#define   AS_TRANSCFG_ADRMODE_UNMAPPED			(1 << 0)
+-#define   AS_TRANSCFG_ADRMODE_IDENTITY			(2 << 0)
+-#define   AS_TRANSCFG_ADRMODE_AARCH64_4K		(6 << 0)
+-#define   AS_TRANSCFG_ADRMODE_AARCH64_64K		(8 << 0)
+-#define   AS_TRANSCFG_INA_BITS(x)			((x) << 6)
+-#define   AS_TRANSCFG_OUTA_BITS(x)			((x) << 14)
+-#define   AS_TRANSCFG_SL_CONCAT				BIT(22)
+-#define   AS_TRANSCFG_PTW_MEMATTR_NC			(1 << 24)
+-#define   AS_TRANSCFG_PTW_MEMATTR_WB			(2 << 24)
+-#define   AS_TRANSCFG_PTW_SH_NS				(0 << 28)
+-#define   AS_TRANSCFG_PTW_SH_OS				(2 << 28)
+-#define   AS_TRANSCFG_PTW_SH_IS				(3 << 28)
+-#define   AS_TRANSCFG_PTW_RA				BIT(30)
+-#define   AS_TRANSCFG_DISABLE_HIER_AP			BIT(33)
+-#define   AS_TRANSCFG_DISABLE_AF_FAULT			BIT(34)
+-#define   AS_TRANSCFG_WXN				BIT(35)
+-#define   AS_TRANSCFG_XREADABLE				BIT(36)
+-#define AS_FAULTEXTRA(as)				(MMU_AS(as) + 0x38)
+-
+-/* Sky1 PHBA (Page-Based Hardware Attribute) registers */
+-#define GPU_SYSC_PBHA_OVERRIDE(n)			(0x320 + ((n) * 4))
+-#define GPU_SYSC_ALLOC(n)				(0x340 + ((n) * 4))
+-
+-#define CSF_GPU_LATEST_FLUSH_ID				0x10000
+-
+-#define CSF_DOORBELL(i)					(0x80000 + ((i) * 0x10000))
+-#define CSF_GLB_DOORBELL_ID				0
+-
+-/* PWR Control registers */
+-
+-#define PWR_CONTROL_BASE				0x800
+-#define PWR_CTRL_REG(x)					(PWR_CONTROL_BASE + (x))
+-
+-#define PWR_INT_RAWSTAT					PWR_CTRL_REG(0x0)
+-#define PWR_INT_CLEAR					PWR_CTRL_REG(0x4)
+-#define PWR_INT_MASK					PWR_CTRL_REG(0x8)
+-#define PWR_INT_STAT					PWR_CTRL_REG(0xc)
+-#define   PWR_IRQ_POWER_CHANGED_SINGLE			BIT(0)
+-#define   PWR_IRQ_POWER_CHANGED_ALL			BIT(1)
+-#define   PWR_IRQ_DELEGATION_CHANGED			BIT(2)
+-#define   PWR_IRQ_RESET_COMPLETED			BIT(3)
+-#define   PWR_IRQ_RETRACT_COMPLETED			BIT(4)
+-#define   PWR_IRQ_INSPECT_COMPLETED			BIT(5)
+-#define   PWR_IRQ_COMMAND_NOT_ALLOWED			BIT(30)
+-#define   PWR_IRQ_COMMAND_INVALID			BIT(31)
+-
+-#define PWR_STATUS					PWR_CTRL_REG(0x20)
+-#define   PWR_STATUS_ALLOW_L2				BIT_U64(0)
+-#define   PWR_STATUS_ALLOW_TILER			BIT_U64(1)
+-#define   PWR_STATUS_ALLOW_SHADER			BIT_U64(8)
+-#define   PWR_STATUS_ALLOW_BASE				BIT_U64(14)
+-#define   PWR_STATUS_ALLOW_STACK			BIT_U64(15)
+-#define   PWR_STATUS_DOMAIN_ALLOWED(x)			BIT_U64(x)
+-#define   PWR_STATUS_DELEGATED_L2			BIT_U64(16)
+-#define   PWR_STATUS_DELEGATED_TILER			BIT_U64(17)
+-#define   PWR_STATUS_DELEGATED_SHADER			BIT_U64(24)
+-#define   PWR_STATUS_DELEGATED_BASE			BIT_U64(30)
+-#define   PWR_STATUS_DELEGATED_STACK			BIT_U64(31)
+-#define   PWR_STATUS_DELEGATED_SHIFT			16
+-#define   PWR_STATUS_DOMAIN_DELEGATED(x)		BIT_U64((x) + PWR_STATUS_DELEGATED_SHIFT)
+-#define   PWR_STATUS_ALLOW_SOFT_RESET			BIT_U64(33)
+-#define   PWR_STATUS_ALLOW_FAST_RESET			BIT_U64(34)
+-#define   PWR_STATUS_POWER_PENDING			BIT_U64(41)
+-#define   PWR_STATUS_RESET_PENDING			BIT_U64(42)
+-#define   PWR_STATUS_RETRACT_PENDING			BIT_U64(43)
+-#define   PWR_STATUS_INSPECT_PENDING			BIT_U64(44)
+-
+-#define PWR_COMMAND					PWR_CTRL_REG(0x28)
+-#define   PWR_COMMAND_POWER_UP				0x10
+-#define   PWR_COMMAND_POWER_DOWN			0x11
+-#define   PWR_COMMAND_DELEGATE				0x20
+-#define   PWR_COMMAND_RETRACT				0x21
+-#define   PWR_COMMAND_RESET_SOFT			0x31
+-#define   PWR_COMMAND_RESET_FAST			0x32
+-#define   PWR_COMMAND_INSPECT				0xF0
+-#define   PWR_COMMAND_DOMAIN_L2				0
+-#define   PWR_COMMAND_DOMAIN_TILER			1
+-#define   PWR_COMMAND_DOMAIN_SHADER			8
+-#define   PWR_COMMAND_DOMAIN_BASE			14
+-#define   PWR_COMMAND_DOMAIN_STACK			15
+-#define   PWR_COMMAND_SUBDOMAIN_RTU			BIT(0)
+-#define   PWR_COMMAND_DEF(cmd, domain, subdomain)	\
+-	(((subdomain) << 16) | ((domain) << 8) | (cmd))
+-
+-#define PWR_CMDARG					PWR_CTRL_REG(0x30)
+-
+-#define PWR_L2_PRESENT					PWR_CTRL_REG(0x100)
+-#define PWR_L2_READY					PWR_CTRL_REG(0x108)
+-#define PWR_L2_PWRTRANS					PWR_CTRL_REG(0x110)
+-#define PWR_L2_PWRACTIVE				PWR_CTRL_REG(0x118)
+-#define PWR_TILER_PRESENT				PWR_CTRL_REG(0x140)
+-#define PWR_TILER_READY					PWR_CTRL_REG(0x148)
+-#define PWR_TILER_PWRTRANS				PWR_CTRL_REG(0x150)
+-#define PWR_TILER_PWRACTIVE				PWR_CTRL_REG(0x158)
+-#define PWR_SHADER_PRESENT				PWR_CTRL_REG(0x200)
+-#define PWR_SHADER_READY				PWR_CTRL_REG(0x208)
+-#define PWR_SHADER_PWRTRANS				PWR_CTRL_REG(0x210)
+-#define PWR_SHADER_PWRACTIVE				PWR_CTRL_REG(0x218)
+-#define PWR_BASE_PRESENT				PWR_CTRL_REG(0x380)
+-#define PWR_BASE_READY					PWR_CTRL_REG(0x388)
+-#define PWR_BASE_PWRTRANS				PWR_CTRL_REG(0x390)
+-#define PWR_BASE_PWRACTIVE				PWR_CTRL_REG(0x398)
+-#define PWR_STACK_PRESENT				PWR_CTRL_REG(0x3c0)
+-#define PWR_STACK_READY					PWR_CTRL_REG(0x3c8)
+-#define PWR_STACK_PWRTRANS				PWR_CTRL_REG(0x3d0)
+-
+-#endif
+diff --git a/drivers/pci/pci-acpi.c b/drivers/pci/pci-acpi.c
+index eff8377549fd..4d0f2cb6c695 100644
+--- a/drivers/pci/pci-acpi.c
++++ b/drivers/pci/pci-acpi.c
+@@ -9,10 +9,9 @@
+ 
+ #include <linux/delay.h>
+ #include <linux/init.h>
+-#include <linux/io.h>
++#include <linux/iommu.h>
+ #include <linux/irqdomain.h>
+ #include <linux/pci.h>
+-#include <linux/sizes.h>
+ #include <linux/msi.h>
+ #include <linux/pci_hotplug.h>
+ #include <linux/module.h>
+@@ -1602,7 +1601,6 @@ static int pci_acpi_root_prepare_resources(struct acpi_pci_root_info *ci)
+ 		if (!(entry->res->flags & IORESOURCE_WINDOW))
+ 			resource_list_destroy_entry(entry);
+ 	}
+-
+ 	return status;
+ }
+ 
+-- 
+2.54.0
+

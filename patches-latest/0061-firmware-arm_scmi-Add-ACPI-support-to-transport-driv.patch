@@ -1,8 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From e1de3cb5dc6a93e781b30077148dac591bfc1d98 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Fri, 6 Feb 2026 02:06:16 +1100
-Subject: [PATCH] firmware: arm_scmi: Add ACPI support to transport driver
- macro
+Subject: [PATCH 061/145] firmware: arm_scmi: Add ACPI support to transport
+ driver macro
 
 Extend DEFINE_SCMI_TRANSPORT_DRIVER macro to accept an ACPI match table
 parameter, allowing SCMI transports to be enumerated via ACPI in addition
@@ -15,15 +15,15 @@ require ACPI enumeration.
 This enables SCMI-based clock and cpufreq drivers to work on ACPI-booted
 systems without requiring platform-specific ACPI clock infrastructure.
 ---
- drivers/firmware/arm_scmi/common.h             |  7 +++++--
- drivers/firmware/arm_scmi/transports/mailbox.c | 13 ++++++++++++-
- drivers/firmware/arm_scmi/transports/optee.c   |  2 +-
- drivers/firmware/arm_scmi/transports/smc.c     |  2 +-
- drivers/firmware/arm_scmi/transports/virtio.c  |  2 +-
- 5 files changed, 20 insertions(+), 6 deletions(-)
+ drivers/firmware/arm_scmi/common.h            | 118 +-----------------
+ .../firmware/arm_scmi/transports/mailbox.c    |  13 +-
+ drivers/firmware/arm_scmi/transports/optee.c  |   2 +-
+ drivers/firmware/arm_scmi/transports/smc.c    |   2 +-
+ drivers/firmware/arm_scmi/transports/virtio.c |   2 +-
+ 5 files changed, 20 insertions(+), 117 deletions(-)
 
 diff --git a/drivers/firmware/arm_scmi/common.h b/drivers/firmware/arm_scmi/common.h
-index 7c35c95fddbaf..d86babb90b4f8 100644
+index b9723c105fc1..8fec79885448 100644
 --- a/drivers/firmware/arm_scmi/common.h
 +++ b/drivers/firmware/arm_scmi/common.h
 @@ -9,6 +9,7 @@
@@ -34,17 +34,128 @@ index 7c35c95fddbaf..d86babb90b4f8 100644
  #include <linux/bitfield.h>
  #include <linux/completion.h>
  #include <linux/device.h>
-@@ -473,7 +474,8 @@ struct scmi_transport {
- 	struct scmi_transport_core_operations **core_ops;
+@@ -502,118 +503,8 @@ struct scmi_transport {
+ 	const struct scmi_transport_handle *th;
  };
  
+-/**
+- * struct scmi_transport_supplier  - Transport descriptor
+- * @mtx: A mutex to protect @available
+- * @available: A reference to an initialized transport device, when available.
+- *	       This reference is implicitly used to track the status of the
+- *	       supplier and it can cycle through the following 3 states:
+- *	       1. NOT_READY - PTR_ERR(-EPROBE_DEFER): no supplier available;
+- *		  this is the transport initial state.
+- *	       2. AVAILABLE - <supplier_dev>: a transport supplier has been
+- *		  initialized and it is available, ready to use.
+- *	       3. BUSY _ PTR_ERR(-EBUSY): transport supplier is currently in use.
+- * @th: An embedded transport handle object that embeds the helpers
+- *	implementing the above mentioned logic
+- *
+- * Note that this transport driver enforces single instance probing.
+- */
+-struct scmi_transport_supplier {
+-	/* Protect @available */
+-	struct mutex mtx;
+-	struct device *available;
+-	const struct scmi_transport_handle th;
+-};
+-
+-#define to_sup(t)	container_of(t, struct scmi_transport_supplier, th)
+-
+-/**
+- * scmi_transport_supplier_put  - A helper to dispose of a supplier
+- * @th: A reference to the transport handle to use
+- * @supplier: A reference to the device supplier to manage, cannot be NULL
+- *	      or ERR_PTR.
+- *
+- * Note that putting a supplier will have different effect based on the
+- * current state of scmi_transport_supplier.available:
+- *  - NOT_READY/BUSY: @supplier will be set as the new available device: this
+- *		      can be used to made available a supplier OR stop using one.
+- *  - AVAILABLE: if the @supplier we are disposing of matches the currently
+- *		 available one, roll back to NOT_READY state.
+- *		 Any other attempt to override an available supplier with a
+- *		 new one is rejected, effectively enforcing one single supplier.
+- *
+- * Return: 0 on Success, errno otherwise.
+- */
+-static inline int
+-scmi_transport_supplier_put(const struct scmi_transport_handle *th,
+-			    struct device *supplier)
+-{
+-	struct scmi_transport_supplier *sup = to_sup(th);
+-
+-	/* Nothing to do when the provided supplier was never real */
+-	if (IS_ERR_OR_NULL(supplier))
+-		return 0;
+-
+-	guard(mutex)(&sup->mtx);
+-	switch (PTR_ERR_OR_ZERO(sup->available)) {
+-	case -EPROBE_DEFER:
+-	case -EBUSY:
+-		sup->available = supplier;
+-		break;
+-	case 0:
+-		/* Putting a supplier when in the AVAILABLE state causes a
+-		 * transition back to the NOT_READY state, BUT only if the
+-		 * supplier we are disposing of was exactly the device that was
+-		 * previously made readily available.
+-		 */
+-		if (supplier != sup->available)
+-			return -EINVAL;
+-		sup->available = ERR_PTR(-EPROBE_DEFER);
+-		break;
+-	default:
+-		return -EINVAL;
+-	}
+-
+-	return 0;
+-}
+-
+-/**
+- * scmi_transport_supplier_get  - A helper to get hold of a supplier
+- * @th: A reference to the transport handle to use
+- *
+- * Note that, trying to get a supplier device can return:
+- *  - a ready to use supplier device, (subsequently made unavailable)
+- *  - PTR_ERR(-EPROBE_DEFER): no supplier is available
+- *  - PTR_ERR(-BUSY): supplier was already taken by a previous get
+- *
+- *  This allows the probe to defer and wait when a possible device can
+- *  be reasonably expected to appear.
+- *
+- * Return: a usable supplier device on Success or PTR_ERR on Failure.
+- */
+-static inline struct device *
+-scmi_transport_supplier_get(const struct scmi_transport_handle *th)
+-{
+-	struct scmi_transport_supplier *sup = to_sup(th);
+-	struct device *supplier;
+-
+-	guard(mutex)(&sup->mtx);
+-	supplier = sup->available;
+-	if (!IS_ERR(sup->available))
+-		sup->available = ERR_PTR(-EBUSY);
+-
+-	return supplier;
+-}
+-
+-#define DEFINE_SCMI_TRANSPORT_SUPPLIER(__supplier)		\
+-struct scmi_transport_supplier __supplier = {			\
+-	.mtx = __MUTEX_INITIALIZER(__supplier.mtx),		\
+-	.available = INIT_ERR_PTR(-EPROBE_DEFER),		\
+-	.th.supplier_get = scmi_transport_supplier_get,		\
+-	.th.supplier_put = scmi_transport_supplier_put,		\
+-}
+-
 -#define DEFINE_SCMI_TRANSPORT_DRIVER(__tag, __drv, __desc, __match, __core_ops)\
 +#define DEFINE_SCMI_TRANSPORT_DRIVER(__tag, __drv, __desc, __of_match,	       \
 +				     __acpi_match, __core_ops)		       \
  static void __tag##_dev_free(void *data)				       \
  {									       \
  	struct platform_device *spdev = data;				       \
-@@ -517,7 +519,8 @@ err:									       \
+@@ -676,7 +567,8 @@ err_mem:								       \
  static struct platform_driver __drv = {					       \
  	.driver = {							       \
  		   .name = #__tag "_transport",				       \
@@ -55,7 +166,7 @@ index 7c35c95fddbaf..d86babb90b4f8 100644
  	.probe = __tag##_probe,						       \
  }
 diff --git a/drivers/firmware/arm_scmi/transports/mailbox.c b/drivers/firmware/arm_scmi/transports/mailbox.c
-index ae0f67e6cc45f..ae98644069bdf 100644
+index ae0f67e6cc45..ae98644069bd 100644
 --- a/drivers/firmware/arm_scmi/transports/mailbox.c
 +++ b/drivers/firmware/arm_scmi/transports/mailbox.c
 @@ -379,8 +379,19 @@ static const struct of_device_id scmi_of_match[] = {
@@ -80,20 +191,20 @@ index ae0f67e6cc45f..ae98644069bdf 100644
  
  MODULE_AUTHOR("Sudeep Holla <sudeep.holla@arm.com>");
 diff --git a/drivers/firmware/arm_scmi/transports/optee.c b/drivers/firmware/arm_scmi/transports/optee.c
-index dc0f46340153a..87f75711b6872 100644
+index dbe32e141748..7863b7f53660 100644
 --- a/drivers/firmware/arm_scmi/transports/optee.c
 +++ b/drivers/firmware/arm_scmi/transports/optee.c
-@@ -527,7 +527,7 @@ static const struct of_device_id scmi_of_match[] = {
+@@ -529,7 +529,7 @@ static const struct of_device_id scmi_of_match[] = {
  };
  
  DEFINE_SCMI_TRANSPORT_DRIVER(scmi_optee, scmi_optee_driver, scmi_optee_desc,
 -			     scmi_of_match, core);
 +			     scmi_of_match, NULL, core);
  
- static int scmi_optee_service_probe(struct device *dev)
+ static int scmi_optee_service_probe(struct tee_client_device *scmi_pta)
  {
 diff --git a/drivers/firmware/arm_scmi/transports/smc.c b/drivers/firmware/arm_scmi/transports/smc.c
-index b4d5ebbfb6927..cdd3e86d5a174 100644
+index b4d5ebbfb692..cdd3e86d5a17 100644
 --- a/drivers/firmware/arm_scmi/transports/smc.c
 +++ b/drivers/firmware/arm_scmi/transports/smc.c
 @@ -314,7 +314,7 @@ static const struct of_device_id scmi_of_match[] = {
@@ -106,10 +217,10 @@ index b4d5ebbfb6927..cdd3e86d5a174 100644
  
  MODULE_AUTHOR("Peng Fan <peng.fan@nxp.com>");
 diff --git a/drivers/firmware/arm_scmi/transports/virtio.c b/drivers/firmware/arm_scmi/transports/virtio.c
-index 326c4a93e44b9..bd806e79ccff6 100644
+index 3282d8271839..81d1ddffc1d7 100644
 --- a/drivers/firmware/arm_scmi/transports/virtio.c
 +++ b/drivers/firmware/arm_scmi/transports/virtio.c
-@@ -806,7 +806,7 @@ static const struct of_device_id scmi_of_match[] = {
+@@ -815,7 +815,7 @@ static const struct of_device_id scmi_of_match[] = {
  };
  
  DEFINE_SCMI_TRANSPORT_DRIVER(scmi_virtio, scmi_virtio_driver, scmi_virtio_desc,
@@ -118,3 +229,6 @@ index 326c4a93e44b9..bd806e79ccff6 100644
  
  static int scmi_vio_probe(struct virtio_device *vdev)
  {
+-- 
+2.54.0
+

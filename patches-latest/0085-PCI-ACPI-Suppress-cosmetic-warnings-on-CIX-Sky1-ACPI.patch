@@ -1,7 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 38616f83ae2e8f3086d40ee65b57380e6eb1a251 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Sat, 7 Feb 2026 22:11:07 +1100
-Subject: [PATCH] PCI: ACPI: Suppress cosmetic warnings on CIX Sky1 ACPI boot
+Subject: [PATCH 085/145] PCI: ACPI: Suppress cosmetic warnings on CIX Sky1
+ ACPI boot
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -27,7 +28,7 @@ during PCI enumeration:
  2 files changed, 3 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/acpi/acpi_platform.c b/drivers/acpi/acpi_platform.c
-index 48d15dd785f6e..7631935ba2ae4 100644
+index a09636a4168e..419761e0b68d 100644
 --- a/drivers/acpi/acpi_platform.c
 +++ b/drivers/acpi/acpi_platform.c
 @@ -30,6 +30,7 @@ static const struct acpi_device_id forbidden_id_list[] = {
@@ -39,7 +40,7 @@ index 48d15dd785f6e..7631935ba2ae4 100644
  };
  
 diff --git a/drivers/pci/of.c b/drivers/pci/of.c
-index 3579265f11984..cf54a54f27091 100644
+index 8b18c4ba845c..00acb6edb936 100644
 --- a/drivers/pci/of.c
 +++ b/drivers/pci/of.c
 @@ -773,11 +773,9 @@ void of_pci_make_host_bridge_node(struct pci_host_bridge *bridge)
@@ -48,7 +49,7 @@ index 3579265f11984..cf54a54f27091 100644
  
 -	/* Check if there is a DT root node to attach the created node */
 -	if (!of_root) {
--		pr_err("of_root node is NULL, cannot create PCI host bridge node\n");
+-		pr_debug("of_root node is NULL, cannot create PCI host bridge node\n");
 +	/* On ACPI systems there is no DT root — this is expected */
 +	if (!of_root)
  		return;
@@ -56,3 +57,6 @@ index 3579265f11984..cf54a54f27091 100644
  
  	name = kasprintf(GFP_KERNEL, "pci@%x,%x", pci_domain_nr(bridge->bus),
  			 bridge->bus->number);
+-- 
+2.54.0
+

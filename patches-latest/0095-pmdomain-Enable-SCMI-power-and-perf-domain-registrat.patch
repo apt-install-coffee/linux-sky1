@@ -1,8 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 8ad75a086ecb1e38a09040e0a9a4df00cad4f781 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Mon, 9 Feb 2026 14:22:51 +1100
-Subject: [PATCH] pmdomain: Enable SCMI power and perf domain registration
- under ACPI
+Subject: [PATCH 095/145] pmdomain: Enable SCMI power and perf domain
+ registration under ACPI
 
 The SCMI power domain and perf domain drivers bail out early when
 booting without device tree, preventing genpd registration on ACPI
@@ -23,14 +23,14 @@ pmdomain core:
 - Add pm_genpd_lookup_by_name() for ACPI consumers to find genpds
   by firmware name instead of DT phandle
 ---
- drivers/pmdomain/arm/scmi_perf_domain.c | 27 +++++++++++++++++-------
- drivers/pmdomain/arm/scmi_pm_domain.c   | 28 +++++++++++++++----------
- drivers/pmdomain/core.c                 | 27 ++++++++++++++++++++++++
- include/linux/pm_domain.h               |  6 ++++++
- 4 files changed, 70 insertions(+), 18 deletions(-)
+ drivers/pmdomain/arm/scmi_perf_domain.c | 27 ++++++++++++++------
+ drivers/pmdomain/arm/scmi_pm_domain.c   | 33 +++++++++++++------------
+ drivers/pmdomain/core.c                 | 27 ++++++++++++++++++++
+ include/linux/pm_domain.h               |  6 +++++
+ 4 files changed, 70 insertions(+), 23 deletions(-)
 
 diff --git a/drivers/pmdomain/arm/scmi_perf_domain.c b/drivers/pmdomain/arm/scmi_perf_domain.c
-index 3693423459c9c..9b93a4ca948a5 100644
+index e390f902a444..6033fc44ed69 100644
 --- a/drivers/pmdomain/arm/scmi_perf_domain.c
 +++ b/drivers/pmdomain/arm/scmi_perf_domain.c
 @@ -88,8 +88,13 @@ static int scmi_perf_domain_probe(struct scmi_device *sdev)
@@ -84,7 +84,7 @@ index 3693423459c9c..9b93a4ca948a5 100644
  	for (i = 0; i < scmi_pd_data->num_domains; i++)
  		pm_genpd_remove(scmi_pd_data->domains[i]);
 diff --git a/drivers/pmdomain/arm/scmi_pm_domain.c b/drivers/pmdomain/arm/scmi_pm_domain.c
-index 8ed148360e8d7..0e16898abb5e8 100644
+index 8522a1057f5e..f9a3e64ce6db 100644
 --- a/drivers/pmdomain/arm/scmi_pm_domain.c
 +++ b/drivers/pmdomain/arm/scmi_pm_domain.c
 @@ -89,11 +89,6 @@ static int scmi_pm_domain_probe(struct scmi_device *sdev)
@@ -99,7 +99,7 @@ index 8ed148360e8d7..0e16898abb5e8 100644
  	scmi_pd = devm_kcalloc(dev, num_domains, sizeof(*scmi_pd), GFP_KERNEL);
  	if (!scmi_pd)
  		return -ENOMEM;
-@@ -139,16 +134,26 @@ static int scmi_pm_domain_probe(struct scmi_device *sdev)
+@@ -139,11 +134,19 @@ static int scmi_pm_domain_probe(struct scmi_device *sdev)
  	scmi_pd_data->domains = domains;
  	scmi_pd_data->num_domains = num_domains;
  
@@ -120,6 +120,10 @@ index 8ed148360e8d7..0e16898abb5e8 100644
 +	dev_info(dev, "SCMI power domains registered (%d domains)\n",
 +		 num_domains);
  
+ 	/*
+ 	 * Parse (optional) power-domains-child-ids property to establish
+@@ -157,8 +160,10 @@ static int scmi_pm_domain_probe(struct scmi_device *sdev)
+ 
  	return 0;
  err_rm_genpds:
 -	for (i = num_domains - 1; i >= 0; i--)
@@ -131,21 +135,26 @@ index 8ed148360e8d7..0e16898abb5e8 100644
  
  	return ret;
  }
-@@ -160,7 +165,8 @@ static void scmi_pm_domain_remove(struct scmi_device *sdev)
+@@ -170,12 +175,8 @@ static void scmi_pm_domain_remove(struct scmi_device *sdev)
  	struct device *dev = &sdev->dev;
  	struct device_node *np = dev->of_node;
  
+-	scmi_pd_data = dev_get_drvdata(dev);
+-
+-	/* Remove any parent-child relationships established at probe time */
+-	of_genpd_remove_child_ids(np, scmi_pd_data);
+-
 -	of_genpd_del_provider(np);
 +	if (np)
 +		of_genpd_del_provider(np);
  
- 	scmi_pd_data = dev_get_drvdata(dev);
  	for (i = 0; i < scmi_pd_data->num_domains; i++) {
+ 		if (!scmi_pd_data->domains[i])
 diff --git a/drivers/pmdomain/core.c b/drivers/pmdomain/core.c
-index bf82775f6a673..004d8a94101cb 100644
+index 842c4169e290..df1823e53af8 100644
 --- a/drivers/pmdomain/core.c
 +++ b/drivers/pmdomain/core.c
-@@ -2462,6 +2462,33 @@ int pm_genpd_init(struct generic_pm_domain *genpd,
+@@ -2463,6 +2463,33 @@ int pm_genpd_init(struct generic_pm_domain *genpd,
  }
  EXPORT_SYMBOL_GPL(pm_genpd_init);
  
@@ -180,10 +189,10 @@ index bf82775f6a673..004d8a94101cb 100644
  {
  	struct gpd_link *l, *link;
 diff --git a/include/linux/pm_domain.h b/include/linux/pm_domain.h
-index 93ba0143ca476..a99b06776b758 100644
+index f925614aebdb..82e3ae72df3e 100644
 --- a/include/linux/pm_domain.h
 +++ b/include/linux/pm_domain.h
-@@ -317,6 +317,7 @@ int pm_genpd_remove_subdomain(struct generic_pm_domain *genpd,
+@@ -318,6 +318,7 @@ int pm_genpd_remove_subdomain(struct generic_pm_domain *genpd,
  int pm_genpd_init(struct generic_pm_domain *genpd,
  		  struct dev_power_governor *gov, bool is_off);
  int pm_genpd_remove(struct generic_pm_domain *genpd);
@@ -191,7 +200,7 @@ index 93ba0143ca476..a99b06776b758 100644
  void pm_genpd_inc_rejected(struct generic_pm_domain *genpd,
  			   unsigned int state_idx);
  struct device *dev_to_genpd_dev(struct device *dev);
-@@ -370,6 +371,11 @@ static inline int pm_genpd_remove(struct generic_pm_domain *genpd)
+@@ -371,6 +372,11 @@ static inline int pm_genpd_remove(struct generic_pm_domain *genpd)
  {
  	return -EOPNOTSUPP;
  }
@@ -203,3 +212,6 @@ index 93ba0143ca476..a99b06776b758 100644
  
  static inline void pm_genpd_inc_rejected(struct generic_pm_domain *genpd,
  					 unsigned int state_idx)
+-- 
+2.54.0
+

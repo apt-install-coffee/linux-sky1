@@ -1,8 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 02cffd4b26548a864c22c3ba1f9d48a7805dc2b2 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Tue, 3 Feb 2026 19:11:44 +1100
-Subject: [PATCH] arm64: dts: cix: Enable USB-C DisplayPort alt mode on Orion
- O6
+Subject: [PATCH 026/145] arm64: dts: cix: Enable USB-C DisplayPort alt mode on
+ Orion O6
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -31,7 +31,7 @@ linlondp DPU -> monitor.
  3 files changed, 13 insertions(+), 82 deletions(-)
 
 diff --git a/arch/arm64/boot/dts/cix/sky1-orion-o6.dts b/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
-index aec8305638231..c9692116d1576 100644
+index aec830563823..c9692116d157 100644
 --- a/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
 +++ b/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
 @@ -1695,7 +1695,7 @@ rts5453_pd1_port0:rts5453@30 {
@@ -53,7 +53,7 @@ index aec8305638231..c9692116d1576 100644
  		usbc_con2 {
  			data-role = "host";
 diff --git a/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts b/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts
-index 66eedd8a16845..3f3e88a7a31ab 100644
+index 66eedd8a1684..3f3e88a7a31a 100644
 --- a/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts
 +++ b/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts
 @@ -1766,71 +1766,7 @@ &i2c1 {
@@ -130,7 +130,7 @@ index 66eedd8a16845..3f3e88a7a31ab 100644
  
  &i7_isp {
 diff --git a/arch/arm64/boot/dts/cix/sky1.dtsi b/arch/arm64/boot/dts/cix/sky1.dtsi
-index a199d58f8f36f..9779c6aea9fc7 100644
+index a199d58f8f36..9779c6aea9fc 100644
 --- a/arch/arm64/boot/dts/cix/sky1.dtsi
 +++ b/arch/arm64/boot/dts/cix/sky1.dtsi
 @@ -2600,9 +2600,8 @@ dpu0: disp-controller@14010000 {
@@ -193,3 +193,6 @@ index a199d58f8f36f..9779c6aea9fc7 100644
  			power-domains = <&smc_devpd SKY1_PD_DPU4>;
  			power-domain-names = "dpu_pd";
  			clocks = <&scmi_clk CLK_TREE_DPU4_ACLK>;
+-- 
+2.54.0
+

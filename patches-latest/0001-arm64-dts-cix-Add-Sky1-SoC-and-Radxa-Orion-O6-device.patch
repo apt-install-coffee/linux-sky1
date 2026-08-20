@@ -1,7 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 945414e2543557ee72ad042f943fecdac12cb9a2 Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Sun, 1 Feb 2026 00:31:25 +1100
-Subject: [PATCH] arm64: dts: cix: Add Sky1 SoC and Radxa Orion O6 device tree
+Subject: [PATCH 001/145] arm64: dts: cix: Add Sky1 SoC and Radxa Orion O6
+ device tree
 
 Add complete device tree for CIX Sky1 SoC (sky1.dtsi) and Radxa Orion O6
 board (sky1-orion-o6.dts, sky1-orion-o6n.dts). Includes dt-binding headers
@@ -14,10 +15,10 @@ Adopts v6.19-rc7 DTS conventions:
 - Use mainline clock header (dt-bindings/clock/cix,sky1.h)
 ---
  arch/arm64/Kconfig                            |    5 +-
- arch/arm64/boot/dts/cix/Makefile              |    1 +
- arch/arm64/boot/dts/cix/sky1-orion-o6.dts     | 2420 ++++++++-
+ arch/arm64/boot/dts/cix/Makefile              |    2 +-
+ arch/arm64/boot/dts/cix/sky1-orion-o6.dts     | 2400 +++++++-
  arch/arm64/boot/dts/cix/sky1-orion-o6n.dts    | 2570 +++++++++
- arch/arm64/boot/dts/cix/sky1.dtsi             | 4799 +++++++++++++++--
+ arch/arm64/boot/dts/cix/sky1.dtsi             | 4837 +++++++++++++++--
  include/dt-bindings/clock/sky1-audss.h        |   71 +
  include/dt-bindings/phy/phy-cadence-torrent.h |   62 +
  include/dt-bindings/pinctrl/pads-sky1.h       |  587 ++
@@ -26,7 +27,7 @@ Adopts v6.19-rc7 DTS conventions:
  include/dt-bindings/reset/sky1-reset-fch.h    |   44 +
  include/dt-bindings/reset/sky1-reset.h        |  166 +
  include/dt-bindings/thermal/sky1-thermal.h    |   29 +
- 13 files changed, 10399 insertions(+), 426 deletions(-)
+ 13 files changed, 10283 insertions(+), 561 deletions(-)
  create mode 100644 arch/arm64/boot/dts/cix/sky1-orion-o6n.dts
  create mode 100644 include/dt-bindings/clock/sky1-audss.h
  create mode 100644 include/dt-bindings/phy/phy-cadence-torrent.h
@@ -38,10 +39,10 @@ Adopts v6.19-rc7 DTS conventions:
  create mode 100644 include/dt-bindings/thermal/sky1-thermal.h
 
 diff --git a/arch/arm64/Kconfig b/arch/arm64/Kconfig
-index 93173f0a09c7d..d5f0c9a612c45 100644
+index b3afe0688919..e7c177732e77 100644
 --- a/arch/arm64/Kconfig
 +++ b/arch/arm64/Kconfig
-@@ -1594,10 +1594,11 @@ config ARCH_SUPPORTS_KEXEC_SIG
+@@ -1651,10 +1651,11 @@ config ARCH_SUPPORTS_KEXEC_SIG
  config ARCH_SUPPORTS_KEXEC_IMAGE_VERIFY_SIG
  	def_bool y
  
@@ -56,18 +57,19 @@ index 93173f0a09c7d..d5f0c9a612c45 100644
  
  config ARCH_SUPPORTS_CRASH_DUMP
 diff --git a/arch/arm64/boot/dts/cix/Makefile b/arch/arm64/boot/dts/cix/Makefile
-index ed37139820128..4618f7a6655ce 100644
+index 8a6c6fdc4ec0..4618f7a6655c 100644
 --- a/arch/arm64/boot/dts/cix/Makefile
 +++ b/arch/arm64/boot/dts/cix/Makefile
-@@ -1,2 +1,3 @@
+@@ -1,3 +1,3 @@
  # SPDX-License-Identifier: GPL-2.0
  dtb-$(CONFIG_ARCH_CIX) += sky1-orion-o6.dtb
+-dtb-$(CONFIG_ARCH_CIX) += sky1-xcp.dtb
 +dtb-$(CONFIG_ARCH_CIX) += sky1-orion-o6n.dtb
 diff --git a/arch/arm64/boot/dts/cix/sky1-orion-o6.dts b/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
-index 4dee8cd0b86da..186bcd3b7dad6 100644
+index e39c87774c12..186bcd3b7dad 100644
 --- a/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
 +++ b/arch/arm64/boot/dts/cix/sky1-orion-o6.dts
-@@ -1,91 +1,2435 @@
+@@ -1,39 +1,280 @@
 -// SPDX-License-Identifier: BSD-3-Clause
  /*
 - * Copyright 2025 Cix Technology Group Co., Ltd.
@@ -89,10 +91,16 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
  
 -	aliases {
 -		serial2 = &uart2;
-+	chosen {
-+		stdout-path = &uart2;
-+	};
-+
+-	};
+-
+ 	chosen {
+ 		stdout-path = &uart2;
+ 	};
+ 
+-	reserved-memory {
+-		#address-cells = <2>;
+-		#size-cells = <2>;
+-		ranges;
 +	dummy_codec: dummy_codec {
 +		#sound-dai-cells = <1>;
 +		compatible = "linux,dummy";
@@ -153,7 +161,12 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +			format = "i2s";
 +			bitclock-inversion;
 +			jack-det,dpout;
-+
+ 
+-		linux,cma {
+-			compatible = "shared-dma-pool";
+-			reusable;
+-			size = <0x0 0x28000000>;
+-			linux,cma-default;
 +			cpu {
 +				sound-dai = <&i2s6 0>;
 +			};
@@ -206,7 +219,7 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +			codec {
 +				sound-dai = <&dp4>;
 +			};
-+		};
+ 		};
 +
 +	};
 +
@@ -335,8 +348,8 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		regulator-pull-down;
 +		enable-active-high;
 +		off-on-delay-us = <15000>;
-+	};
-+
+ 	};
+ 
 +	usb20f_5v: usb20f-5v {
 +		compatible = "regulator-fixed";
 +		regulator-name = "usb20f_5v";
@@ -350,24 +363,13 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		regulator-boot-on;
 +		off-on-delay-us = <15000>;
 +	};
-+};
-+
-+&fch_gpio0 {
-+	status = "okay";
-+};
-+
-+&fch_gpio1 {
-+	status = "okay";
-+};
-+
-+&fch_gpio2 {
-+	status = "okay";
-+};
-+
-+&fch_gpio3 {
-+	status = "okay";
-+};
-+
+ };
+ 
+ &fch_gpio0 {
+@@ -52,68 +293,2143 @@ &fch_gpio3 {
+ 	status = "okay";
+ };
+ 
 +&s5_gpio0 {
 +	status = "okay";
 +};
@@ -602,11 +604,20 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +	};
 +};
 +
-+&iomuxc {
+ &iomuxc {
 +	status = "okay";
-+	pinctrl-names = "default";
-+	pinctrl-0 = <&pinctrl_hog>;
-+
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&pinctrl_hog>;
+ 
+-	pinctrl_hog: hog-cfg {
+-		pins {
+-			pinmux = <CIX_PAD_GPIO144_FUNC_GPIO144>,
+-				<CIX_PAD_GPIO145_FUNC_GPIO145>,
+-				<CIX_PAD_GPIO146_FUNC_GPIO146>,
+-				<CIX_PAD_GPIO147_FUNC_GPIO147>;
+-			bias-pull-down;
+-			drive-strength = <8>;
+-		};
 +	pinctrl_hog: pinctrl_hog {
 +		sky1,pins = <
 +			CIX_PAD_GPIO144_FUNC_GPIO144 (PULL_DOWN|DS_LEVEL4) /* GPIO144 pdb0 */
@@ -919,7 +930,7 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +			CIX_PAD_DP2_DIGON_FUNC_DP2_DIGON (PULL_DOWN|DS_LEVEL4) /* DP2_DIGON */
 +			CIX_PAD_DP2_BLON_FUNC_DP2_BLON   (PULL_DOWN|DS_LEVEL4) /* DP2_BLON */
 +		>;
-+	};
+ 	};
 +
 +	pinctrl_cam0_hw: pinctrl_cam0_hw {
 +		sky1,pins = <
@@ -937,49 +948,65 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		>;
 +	};
 +
-+};
-+
+ };
+ 
+-&iomuxc_s5 {
 +&pwm0 {
-+	pinctrl-names = "default";
+ 	pinctrl-names = "default";
+-	pinctrl-0 = <&pinctrl_hog_s5>;
 +	pinctrl-0 = <&pinctrl_fch_pwm0>;
 +	status = "okay";
 +};
-+
+ 
+-	pinctrl_hog_s5: hog-s5-cfg {
+-		pins {
+-			pinmux = <CIX_PAD_GPIO014_FUNC_GPIO014>;
+-			bias-pull-up;
+-			drive-strength = <8>;
 +&pwm1 {
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&pinctrl_fch_pwm1>;
 +	status = "disabled";
 +};
-+
+ 
+-		};
+-	};
 +&hifi5 {
 +	status = "okay";
-+};
-+
+ };
+ 
+-&pcie_x8_rc {
 +&mbox_dsp2ap {
-+	status = "okay";
-+};
-+
+ 	status = "okay";
+ };
+ 
+-&pcie_x4_rc {
 +&mbox_ap2dsp {
-+	status = "okay";
-+};
-+
+ 	status = "okay";
+ };
+ 
+-&pcie_x2_rc {
 +&audss_cru {
-+	status = "okay";
-+};
-+
+ 	status = "okay";
+ };
+ 
+-&pcie_x1_0_rc {
 +&audss_clk {
-+	status = "okay";
-+};
-+
+ 	status = "okay";
+ };
+ 
+-&pcie_x1_1_rc {
 +&audss_rst {
-+	status = "okay";
-+};
-+
+ 	status = "okay";
+ };
+ 
+-&s5_gpio0 {
 +&audss_dmac {
 +	memory-region = <&audio_alsa>;
-+	status = "okay";
-+};
-+
+ 	status = "okay";
+ };
+ 
+-&s5_gpio1 {
 +&i2s0 {
 +	/* i2s_sc0 for codec */
 +	pinctrl-names = "default";
@@ -1033,9 +1060,10 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +	dma-names = "tx";
 +	cdns,pin-rx-mask = /bits/ 8 <0x00>;
 +	cdns,pin-tx-mask = /bits/ 8 <0x0f>; /* 0x0f, pin0-pin3 works as transmitter */
-+	status = "okay";
-+};
-+
+ 	status = "okay";
+ };
+ 
+-&s5_gpio2 {
 +&i2s6 {
 +	/* i2s_mc5b for dp-out */
 +	dmas = <&audss_dmac 12 0xff>;
@@ -1078,9 +1106,9 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +	pinctrl-0 = <&pinctrl_hda>;
 +	pdb-gpios = <&fch_gpio3 5 GPIO_ACTIVE_HIGH>;
 +	memory-region = <&audio_alsa_hda>;
-+	status = "okay";
-+};
-+
+ 	status = "okay";
+ };
+ 
 +&sensorhub {
 +	memory-region = <&sfh_vdev0buffer>, <&sfh_vdev0vring0>,
 +			<&sfh_vdev0vring1>, <&sfh_ram>;
@@ -1093,7 +1121,7 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +	status = "disabled";
 +};
 +
-+&uart2 {
+ &uart2 {
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&pinctrl_fch_uart2>;
 +	clock-names = "uartclk", "apb_pclk";
@@ -1815,10 +1843,8 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		isp-src = <&i7_isp>;
 +		power0-supply = <&cam_power_en>;
 +		status = "okay";
- 	};
- 
--	chosen {
--		stdout-path = &uart2;
++	};
++
 +	isp_motor: motor0@40 {
 +		compatible = "motor,ms42919";
 +		#address-cells = <1>;
@@ -1826,7 +1852,7 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		reg = <0x40>;
 +		pi-max-frequency = <124999999>;
 +		status = "okay";
- 	};
++	};
 +};
 +/*
 +&i2c1 {
@@ -1852,11 +1878,7 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +	status = "okay";
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&pinctrl_fch_i2c2>;
- 
--	reserved-memory {
--		#address-cells = <2>;
--		#size-cells = <2>;
--		ranges;
++
 +	radxa_touch: radxa-touch@14 {
 +		compatible = "goodix,gt911";
 +		reg = <0x14>;
@@ -1867,13 +1889,7 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		pinctrl-names = "default";
 +		pinctrl-0 = <&pinctrl_touch_panel>;
 +	};
- 
--		linux,cma {
--			compatible = "shared-dma-pool";
--			reusable;
--			size = <0x0 0x28000000>;
--			linux,cma-default;
--		};
++
 +	i2c-hid-dev@68 {
 +		compatible = "hid-over-i2c";
 +		reg = <0x68>;
@@ -1883,8 +1899,8 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		interrupt-parent = <&s5_gpio0>;
 +		interrupts = <9 IRQ_TYPE_LEVEL_LOW>;
 +		status = "disabled";
- 	};
- 
++	};
++
 +	i2c-hid-dev@15 {
 +		compatible = "hid-over-i2c";
 +		reg = <0x15>;
@@ -1895,26 +1911,15 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		interrupts = <9 IRQ_TYPE_LEVEL_LOW>;
 +		status = "disabled";
 +	};
- };
- 
--&iomuxc {
++};
++
 +&i2c2_slave {
- 	pinctrl-names = "default";
--	pinctrl-0 = <&pinctrl_hog>;
++	pinctrl-names = "default";
 +	pinctrl-0 = <&pinctrl_fch_i2c2>;
 +	clock-frequency = <1000000>;
 +	status = "disabled";
 +};
- 
--	pinctrl_hog: hog-cfg {
--		pins {
--			pinmux = <CIX_PAD_GPIO144_FUNC_GPIO144>,
--				<CIX_PAD_GPIO145_FUNC_GPIO145>,
--				<CIX_PAD_GPIO146_FUNC_GPIO146>,
--				<CIX_PAD_GPIO147_FUNC_GPIO147>;
--			bias-pull-down;
--			drive-strength = <8>;
--		};
++
 +&i2c3 {
 +	status = "okay";
 +	pinctrl-names = "default";
@@ -1928,14 +1933,12 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		interrupt-parent = <&s5_gpio0>;
 +		interrupts = <10 IRQ_TYPE_LEVEL_LOW>;
 +		status = "okay";
- 	};
- };
- 
--&iomuxc_s5 {
++	};
++};
++
 +&i2c4 {
 +	status = "okay";
- 	pinctrl-names = "default";
--	pinctrl-0 = <&pinctrl_hog_s5>;
++	pinctrl-names = "default";
 +	pinctrl-0 = <&pinctrl_fch_i2c4>;
 +
 +	nfc: nfc@28 {
@@ -1951,12 +1954,7 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +	clock-frequency = <100000>;
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&pinctrl_fch_i2c5>;
- 
--	pinctrl_hog_s5: hog-s5-cfg {
--		pins {
--			pinmux = <CIX_PAD_GPIO014_FUNC_GPIO014>;
--			bias-pull-up;
--			drive-strength = <8>;
++
 +	keyboard_0: keyboard@3a {
 +		compatible = "hid-over-i2c";
 +		reg = <0x3a>;
@@ -1966,8 +1964,7 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		status = "disabled";
 +	};
 +};
- 
--		};
++
 +/* EC_HOST */
 +&i2c6 {
 +	status = "okay";
@@ -2125,9 +2122,9 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +		compatible = "rohm,dh2228fv";
 +		reg = <0>;
 +		spi-max-frequency = <5000000>;
- 	};
- };
- 
++	};
++};
++
 +&sf_spi {
 +	status = "disabled";
 +	pinctrl-names = "default";
@@ -2198,33 +2195,33 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +};
 +
 +/* PCIe X16 Slot */
- &pcie_x8_rc {
++&pcie_x8_rc {
 +	plat-evk;
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&pinctrl_pcie_x8_rc>;
 +	reset-gpios = <&s5_gpio0 1 GPIO_ACTIVE_HIGH>;
 +	vcc-pcie-supply = <&vgfx_power>;
- 	status = "okay";
- };
- 
++	status = "okay";
++};
++
 +/* M.2 M-Key */
- &pcie_x4_rc {
++&pcie_x4_rc {
 +	plat-evk;
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&pinctrl_pcie_x4_rc>;
 +	reset-gpios = <&s5_gpio0 3 GPIO_ACTIVE_HIGH>;
- 	status = "okay";
- };
- 
++	status = "okay";
++};
++
 +/* M.2 E-Key (WiFi) */
- &pcie_x2_rc {
++&pcie_x2_rc {
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&pinctrl_pcie_x2_rc>;
 +	reset-gpios = <&s5_gpio0 4 GPIO_ACTIVE_HIGH>;
 +	vcc-pcie-supply = <&vdd_3v3_pcie>;
- 	status = "okay";
- };
- 
++	status = "okay";
++};
++
 +/* 5GBE-1 */
 +&pcie_x1_1_rc {
 +	pinctrl-names = "default";
@@ -2235,20 +2232,18 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
 +};
 +
 +/* 5GBE-2 */
- &pcie_x1_0_rc {
++&pcie_x1_0_rc {
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&pinctrl_pcie_x1_0_rc>;
 +	reset-gpios = <&s5_gpio0 5 GPIO_ACTIVE_HIGH>;
 +	vcc-pcie-supply = <&gbe2_power_3v3>;
- 	status = "okay";
- };
- 
--&pcie_x1_1_rc {
++	status = "okay";
++};
++
 +&pcie1_phy {
- 	status = "okay";
- };
- 
--&uart2 {
++	status = "okay";
++};
++
 +&pcie_x4_phy {
 +	status = "okay";
 +};
@@ -2543,7 +2538,7 @@ index 4dee8cd0b86da..186bcd3b7dad6 100644
  };
 diff --git a/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts b/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts
 new file mode 100644
-index 0000000000000..e4d3b04fff7f9
+index 000000000000..e4d3b04fff7f
 --- /dev/null
 +++ b/arch/arm64/boot/dts/cix/sky1-orion-o6n.dts
 @@ -0,0 +1,2570 @@
@@ -5118,10 +5113,10 @@ index 0000000000000..e4d3b04fff7f9
 +	status = "okay";
 +};
 diff --git a/arch/arm64/boot/dts/cix/sky1.dtsi b/arch/arm64/boot/dts/cix/sky1.dtsi
-index 64b76905cbff5..a6b034ba46e4d 100644
+index a77c52296ebd..a6b034ba46e4 100644
 --- a/arch/arm64/boot/dts/cix/sky1.dtsi
 +++ b/arch/arm64/boot/dts/cix/sky1.dtsi
-@@ -1,586 +1,4613 @@
+@@ -1,399 +1,1042 @@
 -// SPDX-License-Identifier: BSD-3-Clause
  /*
 - * Copyright 2025 Cix Technology Group Co., Ltd.
@@ -5138,6 +5133,7 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +#include <dt-bindings/power/sky1-power.h>
 +#include <dt-bindings/reset/sky1-reset.h>
  #include <dt-bindings/clock/cix,sky1.h>
+-#include "sky1-power.h"
 +#include <dt-bindings/thermal/sky1-thermal.h>
 +#include <dt-bindings/reset/sky1-reset-fch.h>
 +#include <dt-bindings/reset/sky1-reset-audss.h>
@@ -5314,11 +5310,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0x0>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_L>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <403>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 2>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <403>;
+ 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <403>;
 +			i-cache-size = <32768>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <32768>;
@@ -5331,11 +5330,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0x100>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_L>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <403>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 2>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <403>;
+ 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <403>;
 +			i-cache-size = <32768>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <32768>;
@@ -5348,11 +5350,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0x200>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_L>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <403>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 2>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <403>;
+ 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <403>;
 +			i-cache-size = <32768>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <32768>;
@@ -5365,11 +5370,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0x300>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_L>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <403>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 2>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <403>;
+ 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <403>;
 +			i-cache-size = <32768>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <32768>;
@@ -5382,11 +5390,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0x400>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_M0>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <1024>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 5>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <1024>;
 +			i-cache-size = <65536>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <65536>;
@@ -5399,11 +5410,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0x500>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_M0>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <1024>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 5>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <1024>;
 +			i-cache-size = <65536>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <65536>;
@@ -5416,11 +5430,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0x600>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_M1>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <1024>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 6>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <1024>;
 +			i-cache-size = <65536>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <65536>;
@@ -5433,11 +5450,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0x700>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_M1>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <1024>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 6>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <1024>;
 +			i-cache-size = <65536>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <65536>;
@@ -5450,11 +5470,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0x800>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_B0>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <1024>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 3>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <1024>;
 +			i-cache-size = <65536>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <65536>;
@@ -5467,11 +5490,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0x900>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_B0>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <1024>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 3>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <1024>;
 +			i-cache-size = <65536>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <65536>;
@@ -5484,11 +5510,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0xa00>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_B1>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <1024>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 4>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <1024>;
 +			i-cache-size = <65536>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <65536>;
@@ -5501,11 +5530,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			enable-method = "psci";
  			reg = <0x0 0xb00>;
  			device_type = "cpu";
+-			power-domains = <&scmi_dvfs SKY1_PERF_CPU_B1>;
+-			power-domain-names = "perf";
+-			capacity-dmips-mhz = <1024>;
 +			enable-method = "psci";
 +			clocks = <&scmi_dvfs 4>;
 +			#cooling-cells = <2>;
-+			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
- 			capacity-dmips-mhz = <1024>;
+ 			cpu-idle-states = <&CPU_SLEEP_1 &CLUSTER_SLEEP_0>;
++			capacity-dmips-mhz = <1024>;
 +			i-cache-size = <65536>;
 +			i-cache-line-size = <64>;
 +			d-cache-size = <65536>;
@@ -5560,6 +5592,48 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			cache-unified;
 +			next-level-cache = <&L3_CACHE>;
  		};
+ 
+-		idle-states {
+-			CPU_SLEEP_0: cpu-sleep-0 {
+-				compatible = "arm,idle-state";
+-				arm,psci-suspend-param = <0x0010000>;
+-				local-timer-stop;
+-				entry-latency-us = <34>;
+-				exit-latency-us = <100>;
+-				min-residency-us = <3000>;
+-			};
+-
+-			CPU_SLEEP_1: cpu-sleep-1 {
+-				compatible = "arm,idle-state";
+-				arm,psci-suspend-param = <0x0010000>;
+-				local-timer-stop;
+-				entry-latency-us = <31>;
+-				exit-latency-us = <79>;
+-				min-residency-us = <3000>;
+-			};
++		L2_CACHE_5: l2-cache-5 {
++			compatible = "cache";
++			cache-size = <524288>;
++			cache-line-size = <64>;
++			cache-unified;
++			next-level-cache = <&L3_CACHE>;
++		};
+ 
+-			CLUSTER_SLEEP_0: cluster-sleep-0 {
+-				compatible = "arm,idle-state";
+-				arm,psci-suspend-param = <0x1010000>;
+-				local-timer-stop;
+-				entry-latency-us = <41>;
+-				exit-latency-us = <104>;
+-				min-residency-us = <4000>;
+-			};
++		L2_CACHE_6: l2-cache-6 {
++			compatible = "cache";
++			cache-size = <524288>;
++			cache-line-size = <64>;
++			cache-unified;
++			next-level-cache = <&L3_CACHE>;
+ 		};
 -	};
  
 -	firmware {
@@ -5570,7 +5644,19 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			shmem = <&ap2pm_scmi_mem>, <&pm2ap_scmi_mem>;
 -			#address-cells = <1>;
 -			#size-cells = <0>;
-+		L2_CACHE_5: l2-cache-5 {
++		L2_CACHE_7: l2-cache-7 {
++			compatible = "cache";
++			cache-size = <524288>;
++			cache-line-size = <64>;
++			cache-unified;
++			next-level-cache = <&L3_CACHE>;
++		};
+ 
+-			scmi_dvfs: protocol@13 {
+-				reg = <0x13>;
+-				#power-domain-cells = <1>;
+-			};
++		L2_CACHE_8: l2-cache-8 {
 +			compatible = "cache";
 +			cache-size = <524288>;
 +			cache-line-size = <64>;
@@ -5582,38 +5668,20 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -				reg = <0x14>;
 -				#clock-cells = <1>;
 -			};
-+		L2_CACHE_6: l2-cache-6 {
-+			compatible = "cache";
-+			cache-size = <524288>;
-+			cache-line-size = <64>;
-+			cache-unified;
-+			next-level-cache = <&L3_CACHE>;
-+		};
-+
-+		L2_CACHE_7: l2-cache-7 {
-+			compatible = "cache";
-+			cache-size = <524288>;
-+			cache-line-size = <64>;
-+			cache-unified;
-+			next-level-cache = <&L3_CACHE>;
-+		};
-+
-+		L2_CACHE_8: l2-cache-8 {
-+			compatible = "cache";
-+			cache-size = <524288>;
-+			cache-line-size = <64>;
-+			cache-unified;
-+			next-level-cache = <&L3_CACHE>;
-+		};
-+
 +		L2_CACHE_9: l2-cache-9 {
 +			compatible = "cache";
 +			cache-size = <524288>;
 +			cache-line-size = <64>;
 +			cache-unified;
 +			next-level-cache = <&L3_CACHE>;
-+		};
-+
+ 		};
+ 
+-		ap_to_tfa_scmi: scmi-1 {
+-			compatible = "arm,scmi-smc";
+-			arm,smc-id = <0xc2000001>;
+-			#address-cells = <1>;
+-			#size-cells = <0>;
+-			shmem = <&ap_tfa_scmi_mem>;
 +		L2_CACHE_10: l2-cache-10 {
 +			compatible = "cache";
 +			cache-size = <524288>;
@@ -5621,27 +5689,35 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			cache-unified;
 +			next-level-cache = <&L3_CACHE>;
 +		};
-+
+ 
+-			smc_devpd: protocol@11 {
+-				reg = <0x11>;
+-				#power-domain-cells = <1>;
+-			};
 +		L2_CACHE_11: l2-cache-11 {
 +			compatible = "cache";
 +			cache-size = <524288>;
 +			cache-line-size = <64>;
 +			cache-unified;
 +			next-level-cache = <&L3_CACHE>;
-+		};
-+
+ 		};
+-	};
+ 
+-	pmu-a520 {
+-		compatible = "arm,cortex-a520-pmu";
+-		interrupts = <GIC_PPI 7 IRQ_TYPE_LEVEL_LOW &ppi_partition0>;
 +		/* Shared L3 cache in DSU (12MB) */
 +		L3_CACHE: l3-cache {
 +			compatible = "cache";
 +			cache-size = <12582912>;
 +			cache-line-size = <64>;
 +			cache-unified;
- 		};
++		};
  	};
  
--	pmu-a520 {
--		compatible = "arm,cortex-a520-pmu";
--		interrupts = <GIC_PPI 7 IRQ_TYPE_LEVEL_LOW &ppi_partition0>;
+-	pmu-a720 {
+-		compatible = "arm,cortex-a720-pmu";
+-		interrupts = <GIC_PPI 7 IRQ_TYPE_LEVEL_LOW &ppi_partition1>;
 +	dsu_pctrl: dsu_pctrl {
 +		compatible = "arm,dsu_pctrl_r0";
 +		size = <8192>; /* size in KB */
@@ -5659,9 +5735,9 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +		status = "disabled";
  	};
  
--	pmu-a720 {
--		compatible = "arm,cortex-a720-pmu";
--		interrupts = <GIC_PPI 7 IRQ_TYPE_LEVEL_LOW &ppi_partition1>;
+-	psci {
+-		compatible = "arm,psci-1.0";
+-		method = "smc";
 +	/*
 +	 * L3 cache in the DSU is the Memory System Component (MSC)
 +	 * The MPAM registers are accessed through utility bus in the DSU
@@ -5672,9 +5748,11 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +		status = "disabled";
  	};
  
--	psci {
--		compatible = "arm,psci-1.0";
--		method = "smc";
+-	s5_gpio_apb_clk: clock-100000000 {
+-		compatible = "fixed-clock";
+-		#clock-cells = <0>;
+-		clock-frequency = <100000000>;
+-		clock-output-names = "s5_gpio_apb_clk";
 +	memory@80000000 {
 +		#address-cells = <2>;
 +		#size-cells = <2>;
@@ -5781,241 +5859,106 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 -			clock-frequency = <400000>;
 -			clocks = <&scmi_clk CLK_TREE_FCH_I2C6_APB>;
 -			interrupts = <GIC_SPI 292 IRQ_TYPE_LEVEL_HIGH 0>;
--			status = "disabled";
 +		rdr_res_region: rdr@83000000 {
 +			reg = <0 0x83000000 0 0x400000>;
 +			no-map;
- 		};
- 
--		i2c7: i2c@4080000 {
--			compatible = "cdns,i2c-r1p14";
--			reg = <0x0 0x04080000 0x0 0x10000>;
--			clock-frequency = <400000>;
--			clocks = <&scmi_clk CLK_TREE_FCH_I2C7_APB>;
--			interrupts = <GIC_SPI 293 IRQ_TYPE_LEVEL_HIGH 0>;
--			status = "disabled";
++		};
++
 +		sfh_vdev0vring0: vdev0vring0@84000000 {
 +			reg = <0x0 0x84000000 0x0 0x4000>;	/* 16k for vring0 */
 +			no-map;
- 		};
- 
--		spi0: spi@4090000 {
--			compatible = "cix,sky1-spi-r1p6", "cdns,spi-r1p6";
--			reg = <0x0 0x04090000 0x0 0x10000>;
--			clocks = <&scmi_clk CLK_TREE_FCH_SPI0_APB>,
--				 <&scmi_clk CLK_TREE_FCH_SPI0_APB>;
--			clock-names = "ref_clk", "pclk";
--			interrupts = <GIC_SPI 294 IRQ_TYPE_LEVEL_HIGH 0>;
--			status = "disabled";
++		};
++
 +		sfh_vdev0vring1: vdev0vring1@84004000 {
 +			reg = <0x0 0x84004000 0x0 0x4000>;	/* 16k for vring1 */
 +			no-map;
- 		};
- 
--		spi1: spi@40a0000 {
--			compatible = "cix,sky1-spi-r1p6", "cdns,spi-r1p6";
--			reg = <0x0 0x040a0000 0x0 0x10000>;
--			clocks = <&scmi_clk CLK_TREE_FCH_SPI1_APB>,
--				 <&scmi_clk CLK_TREE_FCH_SPI1_APB>;
--			clock-names = "ref_clk", "pclk";
--			interrupts = <GIC_SPI 295 IRQ_TYPE_LEVEL_HIGH 0>;
--			status = "disabled";
++		};
++
 +		sfh_vdev0buffer: vdev0buffer@84008000 {		/* 1M for tx/rx buffer */
 +			compatible = "shared-dma-pool";
 +			reg = <0x0 0x84008000 0x0 0x100000>;
 +			no-map;
- 		};
- 
--		uart0: serial@40b0000 {
--			compatible = "arm,pl011", "arm,primecell";
--			reg = <0x0 0x040b0000 0x0 0x1000>;
--			interrupts = <GIC_SPI 296 IRQ_TYPE_LEVEL_HIGH 0>;
--			clocks = <&scmi_clk CLK_TREE_FCH_UART0_FUNC>, <&scmi_clk CLK_TREE_FCH_UART0_APB>;
--			clock-names = "uartclk", "apb_pclk";
--			status = "disabled";
++		};
++
 +		sfh_sharebuffer: sfh_sharebuffer@84800000 {
 +			reg = <0x0 0x84800000 0x0 0x800000>; /* 8M for IPC */
 +			no-map;
- 		};
- 
--		uart1: serial@40c0000 {
--			compatible = "arm,pl011", "arm,primecell";
--			reg = <0x0 0x040c0000 0x0 0x1000>;
--			interrupts = <GIC_SPI 297 IRQ_TYPE_LEVEL_HIGH 0>;
--			clocks = <&scmi_clk CLK_TREE_FCH_UART1_FUNC>, <&scmi_clk CLK_TREE_FCH_UART1_APB>;
--			clock-names = "uartclk", "apb_pclk";
--			status = "disabled";
++		};
++
 +		sfh_ram: ram0@1ca0000000 {	/* 512KB RAM */
 +			reg = <0x1c 0xa0000000 0x0 0x80000>;
 +			no-map;
- 		};
- 
--		uart2: serial@40d0000 {
--			compatible = "arm,pl011", "arm,primecell";
--			reg = <0x0 0x040d0000 0x0 0x1000>;
--			interrupts = <GIC_SPI 298 IRQ_TYPE_LEVEL_HIGH 0>;
--			clocks = <&scmi_clk CLK_TREE_FCH_UART2_FUNC>, <&scmi_clk CLK_TREE_FCH_UART2_APB>;
--			clock-names = "uartclk", "apb_pclk";
--			status = "disabled";
++		};
++
 +		aipu_res_0: memory@90000000 {
 +			compatible = "shared-dma-pool";
 +			no-map;
 +			reg = <0x0 0x90000000 0x0 0x20000000>;
- 		};
- 
--		uart3: serial@40e0000 {
--			compatible = "arm,pl011", "arm,primecell";
--			reg = <0x0 0x040e0000 0x0 0x1000>;
--			interrupts = <GIC_SPI 299 IRQ_TYPE_LEVEL_HIGH 0>;
--			clocks = <&scmi_clk CLK_TREE_FCH_UART3_FUNC>, <&scmi_clk CLK_TREE_FCH_UART3_APB>;
--			clock-names = "uartclk", "apb_pclk";
--			status = "disabled";
++		};
++
 +		mali_protected: mali_protected@bce00000 {
 +			compatible = "mali-reserved";
 +			reg = <0x0 0xbce00000 0x0 0x1000000>;
- 		};
- 
--		i3c0: i3c@40f0000 {
--			compatible = "cdns,i3c-master";
--			reg = <0x0 0x040f0000 0x0 0x10000>;
--			#address-cells = <3>;
--			#size-cells = <0>;
--			interrupts = <GIC_SPI 300 IRQ_TYPE_LEVEL_HIGH 0>;
--			clocks = <&scmi_clk CLK_TREE_FCH_I3C0_APB>,
--				 <&scmi_clk CLK_TREE_FCH_I3C0_FUNC>;
--			clock-names = "pclk", "sysclk";
--			i3c-scl-hz = <400000>;
--			i2c-scl-hz = <100000>;
++		};
++
 +		vpu_private: vpu_private {
 +			reg = <0x0 0xbde00000 0x0 0x800000>;
 +			no-map;
- 			status = "disabled";
- 		};
- 
--		i3c1: i3c@4100000 {
--			compatible = "cdns,i3c-master";
--			reg = <0x0 0x04100000 0x0 0x10000>;
--			#address-cells = <3>;
--			#size-cells = <0>;
--			interrupts = <GIC_SPI 301 IRQ_TYPE_LEVEL_HIGH 0>;
--			clocks = <&scmi_clk CLK_TREE_FCH_I3C1_APB>,
--				 <&scmi_clk CLK_TREE_FCH_I3C1_FUNC>;
--			clock-names = "pclk", "sysclk";
--			i3c-scl-hz = <400000>;
--			i2c-scl-hz = <100000>;
++			status = "disabled";
++		};
++
 +		vpu_protected: vpu_protected {
 +			reg = <0x0 0xbe600000 0x0 0x1800000>;
 +			no-map;
- 			status = "disabled";
- 		};
- 
--		iomuxc: pinctrl@4170000 {
--			compatible = "cix,sky1-pinctrl";
--			reg = <0x0 0x04170000 0x0 0x1000>;
++			status = "disabled";
++		};
++
 +		media_protected: media_protected {
 +			reg = <0x0 0xbfe00000 0x0 0xe000000>;
 +			no-map;
 +			status = "disabled";
- 		};
- 
--		mbox_ap2se: mailbox@5060000 {
--			compatible = "cix,sky1-mbox";
--			reg = <0x0 0x05060000 0x0 0x10000>;
--			interrupts = <GIC_SPI 378 IRQ_TYPE_LEVEL_HIGH 0>;
--			#mbox-cells = <1>;
--			cix,mbox-dir = "tx";
++		};
++
 +		dsp_vdev0vring0: vdev0vring0@cde00000 {
 +			reg = <0x0 0xcde00000 0x0 0x4000>;	/* 16k for vring0 */
 +			no-map;
- 		};
- 
--		mbox_se2ap: mailbox@5070000 {
--			compatible = "cix,sky1-mbox";
--			reg = <0x0 0x05070000 0x0 0x10000>;
--			interrupts = <GIC_SPI 379 IRQ_TYPE_LEVEL_HIGH 0>;
--			#mbox-cells = <1>;
--			cix,mbox-dir = "rx";
++		};
++
 +		dsp_vdev0vring1: vdev0vring1@cde04000 {
 +			reg = <0x0 0xcde04000 0x0 0x4000>;	/* 16k for vring1 */
 +			no-map;
- 		};
- 
--		ap2pm_scmi_mem: shmem@6590000 {
--			compatible = "arm,scmi-shmem";
--			reg = <0x0 0x06590000 0x0 0x80>;
--			reg-io-width = <4>;
++		};
++
 +		dsp_vdev0buffer: vdev0buffer@cde08000 {		/* 1M for tx/rx buffer */
 +			compatible = "shared-dma-pool";
 +			reg = <0x0 0xcde08000 0x0 0x100000>;
 +			no-map;
- 		};
- 
--		mbox_ap2pm: mailbox@6590080 {
--			compatible = "cix,sky1-mbox";
--			reg = <0x0 0x06590080 0x0 0xff80>;
--			interrupts = <GIC_SPI 363 IRQ_TYPE_LEVEL_HIGH 0>;
--			#mbox-cells = <1>;
--			cix,mbox-dir = "tx";
++		};
++
 +		dsp_reserved: dsp_reserved {
 +			reg = <0x0 0xce000000 0x0 0x1000000>;
 +			no-map;
- 		};
- 
--		pm2ap_scmi_mem: shmem@65a0000 {
--			compatible = "arm,scmi-shmem";
--			reg = <0x0 0x065a0000 0x0 0x80>;
--			reg-io-width = <4>;
++		};
++
 +		dsp_reserved_heap: dsp_reserved_heap {
 +			reg = <0x0 0xcf000000 0x0 0x1000000>;
 +			no-map;
- 		};
- 
--		mbox_pm2ap: mailbox@65a0080 {
--			compatible = "cix,sky1-mbox";
--			reg = <0x0 0x065a0080 0x0 0xff80>;
--			interrupts = <GIC_SPI 359 IRQ_TYPE_LEVEL_HIGH 0>;
--			#mbox-cells = <1>;
--			cix,mbox-dir = "rx";
++		};
++
 +		audio_alsa: audio_alsa@d0000000 {
 +			compatible = "shared-dma-pool";
 +			reg = <0x0 0xd0000000 0x0 0xc00000>;
 +			no-map;
- 		};
- 
--		mbox_sfh2ap: mailbox@8090000 {
--			compatible = "cix,sky1-mbox";
--			reg = <0x0 0x08090000 0x0 0x10000>;
--			interrupts = <GIC_SPI 391 IRQ_TYPE_LEVEL_HIGH 0>;
--			#mbox-cells = <1>;
--			cix,mbox-dir = "rx";
++		};
++
 +		audio_alsa_hda: audio_alsa_hda@d0c00000 {
 +			compatible = "shared-dma-pool";
 +			reg = <0x0 0xd0c00000 0x0 0x200000>;
 +			no-map;
- 		};
- 
--		mbox_ap2sfh: mailbox@80a0000 {
--			compatible = "cix,sky1-mbox";
--			reg = <0x0 0x080a0000 0x0 0x10000>;
--			interrupts = <GIC_SPI 392 IRQ_TYPE_LEVEL_HIGH 0>;
--			#mbox-cells = <1>;
--			cix,mbox-dir = "tx";
--		};
++		};
++
 +	};
- 
--		pcie_x8_rc: pcie@a010000 {
--			compatible = "cix,sky1-pcie-host";
--			reg = <0x00 0x0a010000 0x00 0x10000>,
--			      <0x00 0x2c000000 0x00 0x4000000>,
--			      <0x00 0x0a000300 0x00 0x100>,
--			      <0x00 0x0a000400 0x00 0x100>,
--			      <0x00 0x60000000 0x00 0x00100000>;
--			reg-names = "reg", "cfg", "rcsu_strap", "rcsu_status", "msg";
--			ranges = <0x01000000 0x0 0x60100000 0x0 0x60100000 0x0 0x00100000>,
--				 <0x02000000 0x0 0x60200000 0x0 0x60200000 0x0 0x1fe00000>,
--				 <0x43000000 0x18 0x00000000 0x18 0x00000000 0x04 0x00000000>;
--			#address-cells = <3>;
--			#size-cells = <2>;
++
 +	smmu_syshub: iommu@b0e0000 {
 +		compatible = "arm,smmu-v3";
 +		reg = <0 0x0b0e0000 0x0 0xc0000>;
@@ -6322,9 +6265,10 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			resets = <&src_fch SW_I2C4_RST_APB_N>;
 +			reset-names = "i2c_reset";
 +			interrupts = <GIC_SPI 290 IRQ_TYPE_LEVEL_HIGH 0>;
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		i2c7: i2c@4080000 {
 +		i2c5: i2c@04060000 {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
@@ -6354,88 +6298,100 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +		i2c7: i2c@04080000 {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
-+			compatible = "cdns,i2c-r1p14";
-+			reg = <0x0 0x04080000 0x0 0x10000>;
-+			clock-frequency = <400000>;
+ 			compatible = "cdns,i2c-r1p14";
+ 			reg = <0x0 0x04080000 0x0 0x10000>;
+ 			clock-frequency = <400000>;
+-			clocks = <&scmi_clk CLK_TREE_FCH_I2C7_APB>;
 +            		clocks = <&scmi_clk CLK_TREE_FCH_I2C7_APB>;
 +			resets = <&src_fch SW_I2C7_RST_APB_N>;
 +			reset-names = "i2c_reset";
-+			interrupts = <GIC_SPI 293 IRQ_TYPE_LEVEL_HIGH 0>;
-+			status = "disabled";
-+		};
-+
+ 			interrupts = <GIC_SPI 293 IRQ_TYPE_LEVEL_HIGH 0>;
+ 			status = "disabled";
+ 		};
+ 
+-		spi0: spi@4090000 {
+-			compatible = "cix,sky1-spi-r1p6", "cdns,spi-r1p6";
 +		spi0: spi@04090000 {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +			compatible = "cdns,spi-r1p6";
-+			reg = <0x0 0x04090000 0x0 0x10000>;
-+			clocks = <&scmi_clk CLK_TREE_FCH_SPI0_APB>,
+ 			reg = <0x0 0x04090000 0x0 0x10000>;
+ 			clocks = <&scmi_clk CLK_TREE_FCH_SPI0_APB>,
+-				 <&scmi_clk CLK_TREE_FCH_SPI0_APB>;
+-			clock-names = "ref_clk", "pclk";
 +						<&scmi_clk CLK_TREE_FCH_SPI0_APB>;
 +			clock-names = "pclk", "ref_clk";
 +			resets = <&src_fch SW_SPI0_RST_APB_N>;
 +			reset-names = "spi_reset";
-+			interrupts = <GIC_SPI 294 IRQ_TYPE_LEVEL_HIGH 0>;
+ 			interrupts = <GIC_SPI 294 IRQ_TYPE_LEVEL_HIGH 0>;
 +			fifo-width = <32>;
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		spi1: spi@40a0000 {
+-			compatible = "cix,sky1-spi-r1p6", "cdns,spi-r1p6";
 +		spi1: spi@040a0000 {
 +			 #address-cells = <1>;
 +			#size-cells = <0>;
 +			compatible = "cdns,spi-r1p6";
-+			reg = <0x0 0x040a0000 0x0 0x10000>;
-+			clocks = <&scmi_clk CLK_TREE_FCH_SPI1_APB>,
+ 			reg = <0x0 0x040a0000 0x0 0x10000>;
+ 			clocks = <&scmi_clk CLK_TREE_FCH_SPI1_APB>,
+-				 <&scmi_clk CLK_TREE_FCH_SPI1_APB>;
+-			clock-names = "ref_clk", "pclk";
 +						<&scmi_clk CLK_TREE_FCH_SPI1_APB>;
 +			clock-names = "pclk", "ref_clk";
 +			resets = <&src_fch SW_SPI1_RST_APB_N>;
 +			reset-names = "spi_reset";
-+			interrupts = <GIC_SPI 295 IRQ_TYPE_LEVEL_HIGH 0>;
+ 			interrupts = <GIC_SPI 295 IRQ_TYPE_LEVEL_HIGH 0>;
 +			fifo-width = <32>;
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		uart0: serial@40b0000 {
 +		uart0: uart@040b0000 {
-+			compatible = "arm,pl011", "arm,primecell";
-+			reg = <0x0 0x040b0000 0x0 0x1000>;
+ 			compatible = "arm,pl011", "arm,primecell";
+ 			reg = <0x0 0x040b0000 0x0 0x1000>;
 +			timeout-enable;
 +			timeout-value = <250000>;
-+			interrupts = <GIC_SPI 296 IRQ_TYPE_LEVEL_HIGH 0>;
-+			clocks = <&scmi_clk CLK_TREE_FCH_UART0_FUNC>, <&scmi_clk CLK_TREE_FCH_UART0_APB>;
-+			clock-names = "uartclk", "apb_pclk";
+ 			interrupts = <GIC_SPI 296 IRQ_TYPE_LEVEL_HIGH 0>;
+ 			clocks = <&scmi_clk CLK_TREE_FCH_UART0_FUNC>, <&scmi_clk CLK_TREE_FCH_UART0_APB>;
+ 			clock-names = "uartclk", "apb_pclk";
 +			resets = <&src_fch SW_UART0_RST_FUNC_N>, <&src_fch SW_UART0_RST_APB_N>;
 +			reset-names = "uart_func_reset", "uart_apb_reset";
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		uart1: serial@40c0000 {
 +		uart1: uart@040c0000 {
-+			compatible = "arm,pl011", "arm,primecell";
-+			reg = <0x0 0x040c0000 0x0 0x1000>;
+ 			compatible = "arm,pl011", "arm,primecell";
+ 			reg = <0x0 0x040c0000 0x0 0x1000>;
 +			timeout-enable;
 +			timeout-value = <250000>;
-+			interrupts = <GIC_SPI 297 IRQ_TYPE_LEVEL_HIGH 0>;
-+			clocks = <&scmi_clk CLK_TREE_FCH_UART1_FUNC>, <&scmi_clk CLK_TREE_FCH_UART1_APB>;
-+			clock-names = "uartclk", "apb_pclk";
+ 			interrupts = <GIC_SPI 297 IRQ_TYPE_LEVEL_HIGH 0>;
+ 			clocks = <&scmi_clk CLK_TREE_FCH_UART1_FUNC>, <&scmi_clk CLK_TREE_FCH_UART1_APB>;
+ 			clock-names = "uartclk", "apb_pclk";
 +			resets = <&src_fch SW_UART1_RST_FUNC_N>, <&src_fch SW_UART1_RST_APB_N>;
 +			reset-names = "uart_func_reset", "uart_apb_reset";
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		uart2: serial@40d0000 {
 +		uart2: uart@040d0000 {
-+			compatible = "arm,pl011", "arm,primecell";
-+			reg = <0x0 0x040d0000 0x0 0x1000>;
-+			interrupts = <GIC_SPI 298 IRQ_TYPE_LEVEL_HIGH 0>;
-+			clocks = <&scmi_clk CLK_TREE_FCH_UART2_FUNC>, <&scmi_clk CLK_TREE_FCH_UART2_APB>;
-+			clock-names = "uartclk", "apb_pclk";
-+			status = "disabled";
-+		};
-+
+ 			compatible = "arm,pl011", "arm,primecell";
+ 			reg = <0x0 0x040d0000 0x0 0x1000>;
+ 			interrupts = <GIC_SPI 298 IRQ_TYPE_LEVEL_HIGH 0>;
+@@ -402,407 +1045,3569 @@ uart2: serial@40d0000 {
+ 			status = "disabled";
+ 		};
+ 
+-		uart3: serial@40e0000 {
 +		uart3: uart@040e0000 {
-+			compatible = "arm,pl011", "arm,primecell";
-+			reg = <0x0 0x040e0000 0x0 0x1000>;
-+			interrupts = <GIC_SPI 299 IRQ_TYPE_LEVEL_HIGH 0>;
-+			clocks = <&scmi_clk CLK_TREE_FCH_UART3_FUNC>, <&scmi_clk CLK_TREE_FCH_UART3_APB>;
-+			clock-names = "uartclk", "apb_pclk";
-+			status = "disabled";
+ 			compatible = "arm,pl011", "arm,primecell";
+ 			reg = <0x0 0x040e0000 0x0 0x1000>;
+ 			interrupts = <GIC_SPI 299 IRQ_TYPE_LEVEL_HIGH 0>;
+ 			clocks = <&scmi_clk CLK_TREE_FCH_UART3_FUNC>, <&scmi_clk CLK_TREE_FCH_UART3_APB>;
+ 			clock-names = "uartclk", "apb_pclk";
+ 			status = "disabled";
 +        	};
 +
 +		uart4: uart@06540000 {
@@ -6449,36 +6405,61 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			reg = <0x0 0x5020000 0x0 0x1000>;
 +			interrupts = <GIC_SPI 387 IRQ_TYPE_LEVEL_HIGH 0>;
 +			status = "disabled";
-+		};
-+
+ 		};
+ 
+-		i3c0: i3c@40f0000 {
 +		i3c0: i3c@040f0000 {
-+			compatible = "cdns,i3c-master";
-+			reg = <0x0 0x040f0000 0x0 0x10000>;
-+			#address-cells = <3>;
-+			#size-cells = <0>;
+ 			compatible = "cdns,i3c-master";
+ 			reg = <0x0 0x040f0000 0x0 0x10000>;
+ 			#address-cells = <3>;
+ 			#size-cells = <0>;
 +			i2c-scl-hz = <100000>;
-+			interrupts = <GIC_SPI 300 IRQ_TYPE_LEVEL_HIGH 0>;
+ 			interrupts = <GIC_SPI 300 IRQ_TYPE_LEVEL_HIGH 0>;
+-			clocks = <&scmi_clk CLK_TREE_FCH_I3C0_APB>,
+-				 <&scmi_clk CLK_TREE_FCH_I3C0_FUNC>;
 +			clocks = <&scmi_clk CLK_TREE_FCH_I3C0_APB>, <&scmi_clk CLK_TREE_FCH_I3C0_FUNC>;
-+			clock-names = "pclk", "sysclk";
+ 			clock-names = "pclk", "sysclk";
+-			i3c-scl-hz = <400000>;
+-			i2c-scl-hz = <100000>;
 +			resets = <&src_fch SW_I3C0_RST_FUNC_G_N>, <&src_fch SW_I3C0_RST_FUNC_I_N>, <&src_fch SW_I3C0_RST_APB_N>;
 +			reset-names = "i3c_funcg","i3c_funci","i3c_apb";
-+			status = "disabled";
+ 			status = "disabled";
+-		};
 +        	};
-+
+ 
+-		i3c1: i3c@4100000 {
 +		i3c1: i3c@04100000 {
-+			compatible = "cdns,i3c-master";
-+			reg = <0x0 0x04100000 0x0 0x10000>;
-+			#address-cells = <3>;
-+			#size-cells = <0>;
+ 			compatible = "cdns,i3c-master";
+ 			reg = <0x0 0x04100000 0x0 0x10000>;
+ 			#address-cells = <3>;
+ 			#size-cells = <0>;
 +			i2c-scl-hz = <100000>;
-+			interrupts = <GIC_SPI 301 IRQ_TYPE_LEVEL_HIGH 0>;
+ 			interrupts = <GIC_SPI 301 IRQ_TYPE_LEVEL_HIGH 0>;
+-			clocks = <&scmi_clk CLK_TREE_FCH_I3C1_APB>,
+-				 <&scmi_clk CLK_TREE_FCH_I3C1_FUNC>;
 +			clocks = <&scmi_clk CLK_TREE_FCH_I3C1_APB>, <&scmi_clk CLK_TREE_FCH_I3C1_FUNC>;
-+			clock-names = "pclk", "sysclk";
+ 			clock-names = "pclk", "sysclk";
+-			i3c-scl-hz = <400000>;
+-			i2c-scl-hz = <100000>;
 +			resets = <&src_fch SW_I3C1_RST_FUNC_G_N>, <&src_fch SW_I3C1_RST_FUNC_I_N>, <&src_fch SW_I3C1_RST_APB_N>;
 +			reset-names = "i3c_funcg","i3c_funci","i3c_apb";
-+			status = "disabled";
+ 			status = "disabled";
+-		};
+-
+-		fch_gpio0: gpio-controller@4120000 {
+-			compatible = "cdns,gpio-r1p02";
+-			reg = <0x0 0x4120000 0x0 0x1000>;
+-			clocks = <&scmi_clk CLK_TREE_FCH_GPIO_APB>;
+-
+-			interrupts = <GIC_SPI 304 IRQ_TYPE_LEVEL_HIGH 0>;
+-
+-			gpio-controller;
+-			#gpio-cells = <2>;
+-			ngpios = <32>;
 +         	};
-+
+ 
+-			interrupt-controller;
+-			#interrupt-cells = <2>;
 +                xspi: spi@4180000 {
 +			compatible = "cdns,xspi-nor";
 +			reg = <0x0 0x04180000 0x0 0x10000>, <0x0 0x10000 0x0 0x4000000>;
@@ -6490,14 +6471,23 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			clock-names = "pclk", "maclk", "funcclk";
 +			resets = <&src_fch SW_XSPI_SYS_RST_N>, <&src_fch SW_XSPI_REG_RST_N>;
 +                        reset-names = "xspi_sys_reset", "xspi_reg_reset";
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		fch_gpio1: gpio-controller@4130000 {
+-			compatible = "cdns,gpio-r1p02";
+-			reg = <0x0 0x4130000 0x0 0x1000>;
+-			clocks = <&scmi_clk CLK_TREE_FCH_GPIO_APB>;
+-
+-			interrupts = <GIC_SPI 305 IRQ_TYPE_LEVEL_HIGH 0>;
 +		fch_cru: fch_cru@416009c {
 +			compatible = "sky1,fch_cru", "syscon";
 +			reg = <0x0 0x0416009c 0x0 0x80>;
 +		};
-+
+ 
+-			gpio-controller;
+-			#gpio-cells = <2>;
+-			ngpios = <32>;
 +		fch_dmac: dma-controller@4190000 {
 +			compatible = "arm,dma350-full";
 +			reg = <0x0 0x4190000 0x0 0x10000>;
@@ -6511,23 +6501,51 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			reset-names = "dma_reset";
 +			status = "okay";
 +		};
-+
+ 
+-			interrupt-controller;
+-			#interrupt-cells = <2>;
 +		csu_se@05000000 {
 +			compatible = "cix,sky1-se";
 +			mbox-names = "tx3", "rx3";
 +			mboxes = <&mbox_ap2se 9>,	/* index=9: fifo base channel */
 +				 <&mbox_se2ap 9>;
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		fch_gpio2: gpio-controller@4140000 {
+-			compatible = "cdns,gpio-r1p02";
+-			reg = <0x0 0x4140000 0x0 0x1000>;
+-			clocks = <&scmi_clk CLK_TREE_FCH_GPIO_APB>;
+-
+-			interrupts = <GIC_SPI 306 IRQ_TYPE_LEVEL_HIGH 0>;
+-
+-			gpio-controller;
+-			#gpio-cells = <2>;
+-			ngpios = <32>;
+-
+-			interrupt-controller;
+-			#interrupt-cells = <2>;
 +		csu_pm@06000000 {
 +			compatible = "cix,sky1-pm";
 +			mbox-names = "tx2", "rx2";
 +			mboxes = <&mbox_ap2pm 8>,	/* index=8: Reg/DB base channel */
 +				 <&mbox_pm2ap 8>;
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		fch_gpio3: gpio-controller@4150000 {
+-			compatible = "cdns,gpio-r1p02";
+-			reg = <0x0 0x4150000 0x0 0x1000>;
+-			clocks = <&scmi_clk CLK_TREE_FCH_GPIO_APB>;
+-
+-			interrupts = <GIC_SPI 307 IRQ_TYPE_LEVEL_HIGH 0>;
+-
+-			gpio-controller;
+-			#gpio-cells = <2>;
+-			ngpios = <17>;
+-
+-			interrupt-controller;
+-			#interrupt-cells = <2>;
 +		sf_i2c0: i2c@08030000 {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
@@ -6536,9 +6554,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			clock-frequency = <400000>;
 +			clocks = <&i2cclk>;
 +			interrupts = <GIC_SPI 398 IRQ_TYPE_LEVEL_HIGH 0>;
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		syscon: syscon@4160000 {
+-			compatible = "cix,sky1-system-control", "syscon";
+-			reg = <0x0 0x4160000 0x0 0x100>;
+-			#reset-cells = <1>;
+-		};
 +		sf_i2c1: i2c@08040000 {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
@@ -6549,7 +6572,10 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			interrupts = <GIC_SPI 397 IRQ_TYPE_LEVEL_HIGH 0>;
 +			status = "disabled";
 +		};
-+
+ 
+-		iomuxc: pinctrl@4170000 {
+-			compatible = "cix,sky1-pinctrl";
+-			reg = <0x0 0x04170000 0x0 0x1000>;
 +		sf_spi: spi@08070000 {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
@@ -6560,8 +6586,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			interrupts = <GIC_SPI 394 IRQ_TYPE_LEVEL_HIGH 0>;
 +			fifo-width = <32>;
 +			status = "disabled";
-+		};
-+
+ 		};
+ 
+-		mbox_ap2se: mailbox@5060000 {
+-			compatible = "cix,sky1-mbox";
+-			reg = <0x0 0x05060000 0x0 0x10000>;
+-			interrupts = <GIC_SPI 378 IRQ_TYPE_LEVEL_HIGH 0>;
+-			#mbox-cells = <1>;
+-			cix,mbox-dir = "tx";
 +		sf_i3c0: i3c@08050000 {
 +			compatible = "cdns,i3c-master";
 +			reg = <0x0 0x08050000 0x0 0x10000>;
@@ -6608,8 +6640,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				 <&mbox_dsp2ap 9>;
 +			cix,dsp-ctrl = <&audss_cru>;
 +			status = "disabled";
-+		};
-+
+ 		};
+ 
+-		mbox_se2ap: mailbox@5070000 {
+-			compatible = "cix,sky1-mbox";
+-			reg = <0x0 0x05070000 0x0 0x10000>;
+-			interrupts = <GIC_SPI 379 IRQ_TYPE_LEVEL_HIGH 0>;
+-			#mbox-cells = <1>;
+-			cix,mbox-dir = "rx";
 +		audss_dmac: dma-controller@07010000 {
 +			compatible = "arm,dma350-no-pause";
 +			reg = <0x0 0x07010000 0x0 0x10000>;
@@ -6628,8 +6666,12 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			reset-names = "dma_reset";
 +			memory-region = <&audio_alsa>;
 +			status = "disabled";
-+		};
-+
+ 		};
+ 
+-		ap2pm_scmi_mem: shmem@6590000 {
+-			compatible = "arm,scmi-shmem";
+-			reg = <0x0 0x06590000 0x0 0x80>;
+-			reg-io-width = <4>;
 +		i2s0: i2s@07020000 {
 +			compatible = "cdns,sky1-i2s-sc";
 +			reg = <0x0 0x07020000 0x0 0x10000>;
@@ -6645,8 +6687,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			cdns,cru-ctrl = <&audss_cru>;
 +			#sound-dai-cells = <0>;
 +			status = "disabled";
-+		};
-+
+ 		};
+ 
+-		mbox_ap2pm: mailbox@6590080 {
+-			compatible = "cix,sky1-mbox";
+-			reg = <0x0 0x06590080 0x0 0xff80>;
+-			interrupts = <GIC_SPI 363 IRQ_TYPE_LEVEL_HIGH 0>;
+-			#mbox-cells = <1>;
+-			cix,mbox-dir = "tx";
 +		i2s1: i2s@07030000 {
 +			compatible = "cdns,sky1-i2s-sc";
 +			reg = <0x0 0x07030000 0x0 0x10000>;
@@ -6662,8 +6710,12 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			cdns,cru-ctrl = <&audss_cru>;
 +			#sound-dai-cells = <0>;
 +			status = "disabled";
-+		};
-+
+ 		};
+ 
+-		pm2ap_scmi_mem: shmem@65a0000 {
+-			compatible = "arm,scmi-shmem";
+-			reg = <0x0 0x065a0000 0x0 0x80>;
+-			reg-io-width = <4>;
 +		i2s2: i2s@07040000 {
 +			compatible = "cdns,sky1-i2s-sc";
 +			reg = <0x0 0x07040000 0x0 0x10000>;
@@ -6679,8 +6731,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			cdns,cru-ctrl = <&audss_cru>;
 +			#sound-dai-cells = <0>;
 +			status = "disabled";
-+		};
-+
+ 		};
+ 
+-		mbox_pm2ap: mailbox@65a0080 {
+-			compatible = "cix,sky1-mbox";
+-			reg = <0x0 0x065a0080 0x0 0xff80>;
+-			interrupts = <GIC_SPI 359 IRQ_TYPE_LEVEL_HIGH 0>;
+-			#mbox-cells = <1>;
+-			cix,mbox-dir = "rx";
 +		i2s3: i2s@07050000 {
 +			compatible = "cdns,sky1-i2s-mc";
 +			reg = <0x0 0x07050000 0x0 0x10000>;
@@ -6830,30 +6888,61 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				reset-names = "hda";
 +				status = "disabled";
 +			};
-+		};
-+
+ 		};
+ 
+-		mbox_sfh2ap: mailbox@8090000 {
 +		mbox_ap2dsp: mailbox@70f0000 {
-+			compatible = "cix,sky1-mbox";
+ 			compatible = "cix,sky1-mbox";
+-			reg = <0x0 0x08090000 0x0 0x10000>;
+-			interrupts = <GIC_SPI 391 IRQ_TYPE_LEVEL_HIGH 0>;
 +			reg = <0x0 0x070f0000 0x0 0x10000>;
 +			interrupts = <GIC_SPI 232 IRQ_TYPE_LEVEL_HIGH 0>;
-+			#mbox-cells = <1>;
+ 			#mbox-cells = <1>;
+-			cix,mbox-dir = "rx";
 +			cix,mbox_dir = <0>;
 +			status = "disabled";
-+		};
-+
+ 		};
+ 
+-		mbox_ap2sfh: mailbox@80a0000 {
 +		mbox_dsp2ap: mailbox@7100000 {
-+			compatible = "cix,sky1-mbox";
+ 			compatible = "cix,sky1-mbox";
+-			reg = <0x0 0x080a0000 0x0 0x10000>;
+-			interrupts = <GIC_SPI 392 IRQ_TYPE_LEVEL_HIGH 0>;
 +			reg = <0x0 0x07100000 0x0 0x10000>;
 +			interrupts = <GIC_SPI 233 IRQ_TYPE_LEVEL_HIGH 0>;
-+			#mbox-cells = <1>;
+ 			#mbox-cells = <1>;
+-			cix,mbox-dir = "tx";
 +			cix,mbox_dir = <1>;
 +			status = "disabled";
-+		};
-+
+ 		};
+ 
+-		pcie_x8_rc: pcie@a010000 {
+-			compatible = "cix,sky1-pcie-host";
+-			reg = <0x00 0x0a010000 0x00 0x10000>,
+-			      <0x00 0x2c000000 0x00 0x4000000>,
+-			      <0x00 0x0a000300 0x00 0x100>,
+-			      <0x00 0x0a000400 0x00 0x100>,
+-			      <0x00 0x60000000 0x00 0x00100000>;
+-			reg-names = "reg", "cfg", "rcsu_strap", "rcsu_status", "msg";
+-			ranges = <0x01000000 0x0 0x60100000 0x0 0x60100000 0x0 0x00100000>,
+-				 <0x02000000 0x0 0x60200000 0x0 0x60200000 0x0 0x1fe00000>,
+-				 <0x43000000 0x18 0x00000000 0x18 0x00000000 0x04 0x00000000>;
+-			#address-cells = <3>;
+-			#size-cells = <2>;
+-			bus-range = <0xc0 0xff>;
+-			device_type = "pci";
+-			power-domains = <&smc_devpd SKY1_PD_PCIE_CTRL0>;
+-			#interrupt-cells = <1>;
+-			interrupt-map-mask = <0 0 0 0x7>;
+-			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 407 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 2 &gic 0 0 GIC_SPI 408 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 3 &gic 0 0 GIC_SPI 409 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 4 &gic 0 0 GIC_SPI 410 IRQ_TYPE_LEVEL_HIGH 0>;
+-			msi-map = <0xc000 &gic_its 0xc000 0x4000>;
 +		audss_cru: system-controller@07110000 {
 +			compatible = "cix,audio-ss-cru", "simple-mfd", "syscon";
 +			reg = <0x0 0x07110000 0x0 0x10000>;
-+			status = "disabled";
+ 			status = "disabled";
 +
 +			audss_clk: clock-controller {
 +				compatible = "cix,sky1-audss-clock";
@@ -6876,8 +6965,30 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				#reset-cells = <1>;
 +				status = "disabled";
 +			};
-+		};
-+
+ 		};
+ 
+-		pcie_x4_rc: pcie@a070000 {
+-			compatible = "cix,sky1-pcie-host";
+-			reg = <0x00 0x0a070000 0x00 0x10000>,
+-			      <0x00 0x29000000 0x00 0x3000000>,
+-			      <0x00 0x0a060300 0x00 0x40>,
+-			      <0x00 0x0a060400 0x00 0x40>,
+-			      <0x00 0x50000000 0x00 0x00100000>;
+-			reg-names = "reg", "cfg", "rcsu_strap", "rcsu_status", "msg";
+-			ranges = <0x01000000 0x00 0x50100000 0x00 0x50100000 0x00 0x00100000>,
+-				 <0x02000000 0x00 0x50200000 0x00 0x50200000 0x00 0x0fe00000>,
+-				 <0x43000000 0x14 0x00000000 0x14 0x00000000 0x04 0x00000000>;
+-			#address-cells = <3>;
+-			#size-cells = <2>;
+-			bus-range = <0x90 0xbf>;
+-			device_type = "pci";
+-			#interrupt-cells = <1>;
+-			interrupt-map-mask = <0 0 0 0x7>;
+-			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 417 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 2 &gic 0 0 GIC_SPI 418 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 3 &gic 0 0 GIC_SPI 419 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 4 &gic 0 0 GIC_SPI 420 IRQ_TYPE_LEVEL_HIGH 0>;
+-			msi-map = <0x9000 &gic_its 0x9000 0x3000>;
 +		sensorhub: sensor-mcu@08000000 {
 +			compatible = "cix,sky1-sfh";
 +			reg = <0x0 0x08000000 0x0 0x1000000>;
@@ -6896,31 +7007,105 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				 <&mbox_sfh2ap 9>;
 +			cix,sfh-ctrl = <&sfh_cru>;
 +			wakeup-source;
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		pcie_x2_rc: pcie@a0c0000 {
+-			compatible = "cix,sky1-pcie-host";
+-			reg = <0x00 0x0a0c0000 0x00 0x10000>,
+-			      <0x00 0x26000000 0x00 0x3000000>,
+-			      <0x00 0x0a0600340 0x00 0x20>,
+-			      <0x00 0x0a0600440 0x00 0x20>,
+-			      <0x00 0x40000000 0x00 0x00100000>;
+-			reg-names = "reg", "cfg", "rcsu_strap", "rcsu_status", "msg";
+-			ranges = <0x01000000 0x0 0x40100000 0x0 0x40100000 0x0 0x00100000>,
+-				 <0x02000000 0x0 0x40200000 0x0 0x40200000 0x0 0x0fe00000>,
+-				 <0x43000000 0x10 0x00000000 0x10 0x00000000 0x04 0x00000000>;
+-			#address-cells = <3>;
+-			#size-cells = <2>;
+-			bus-range = <0x60 0x8f>;
+-			device_type = "pci";
+-			#interrupt-cells = <1>;
+-			interrupt-map-mask = <0 0 0 0x7>;
+-			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 427 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 2 &gic 0 0 GIC_SPI 428 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 3 &gic 0 0 GIC_SPI 429 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 4 &gic 0 0 GIC_SPI 430 IRQ_TYPE_LEVEL_HIGH 0>;
+-			msi-map = <0x6000 &gic_its 0x6000 0x3000>;
+-			status = "disabled";
 +		sfh_cru: sfh_cru@08080000 {
 +			compatible = "sky1,sfh_cru", "syscon";
 +			reg = <0x0 0x08080000 0x0 0x1000>;
-+		};
-+
+ 		};
+ 
+-		pcie_x1_0_rc: pcie@a0d0000 {
+-			compatible = "cix,sky1-pcie-host";
+-			reg = <0x00 0x0a0d0000 0x00 0x10000>,
+-			      <0x00 0x20000000 0x00 0x3000000>,
+-			      <0x00 0x0a060360 0x00 0x20>,
+-			      <0x00 0x0a060460 0x00 0x20>,
+-			      <0x00 0x30000000 0x00 0x00100000>;
+-			reg-names = "reg", "cfg", "rcsu_strap", "rcsu_status", "msg";
+-			ranges = <0x01000000 0x0 0x30100000 0x0 0x30100000 0x0 0x00100000>,
+-				 <0x02000000 0x0 0x30200000 0x0 0x30200000 0x0 0x07e00000>,
+-				 <0x43000000 0x08 0x00000000 0x08 0x00000000 0x04 0x00000000>;
+-			#address-cells = <3>;
+-			#size-cells = <2>;
+-			bus-range = <0x00 0x2f>;
+-			device_type = "pci";
+-			#interrupt-cells = <1>;
+-			interrupt-map-mask = <0 0 0 0x7>;
+-			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 436 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 2 &gic 0 0 GIC_SPI 437 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 3 &gic 0 0 GIC_SPI 438 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 4 &gic 0 0 GIC_SPI 439 IRQ_TYPE_LEVEL_HIGH 0>;
+-			msi-map = <0x0000 &gic_its 0x0000 0x3000>;
 +		sfh_scp: sfh_scp@08100000 {
 +			compatible = "cix,sfh_scp";
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		pcie_x1_1_rc: pcie@a0e0000 {
+-			compatible = "cix,sky1-pcie-host";
+-			reg = <0x00 0x0a0e0000 0x00 0x10000>,
+-			      <0x00 0x23000000 0x00 0x3000000>,
+-			      <0x00 0x0a060380 0x00 0x20>,
+-			      <0x00 0x0a060480 0x00 0x20>,
+-			      <0x00 0x38000000 0x00 0x00100000>;
+-			reg-names = "reg", "cfg", "rcsu_strap", "rcsu_status", "msg";
+-			ranges = <0x01000000 0x0 0x38100000 0x0 0x38100000 0x0 0x00100000>,
+-				 <0x02000000 0x0 0x38200000 0x0 0x38200000 0x0 0x07e00000>,
+-				 <0x43000000 0x0c 0x00000000 0x0c 0x00000000 0x04 0x00000000>;
+-			#address-cells = <3>;
+-			#size-cells = <2>;
+-			bus-range = <0x30 0x5f>;
+-			device_type = "pci";
 +		cix_se2ap_mbox: cix_se2ap_mbox {
 +			compatible = "cix,cix_se2ap_mbox";
 +			mbox-names = "tx4", "rx4";
 +			mboxes = <&mbox_ap2se 10>, <&mbox_se2ap 9>;  /* index=9: fifo base channel */
 +			status = "okay";
 +		};
-+
+ 
+-			#interrupt-cells = <1>;
+-			interrupt-map-mask = <0 0 0 0x7>;
+-			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 445 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 2 &gic 0 0 GIC_SPI 446 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 3 &gic 0 0 GIC_SPI 447 IRQ_TYPE_LEVEL_HIGH 0>,
+-					<0 0 0 4 &gic 0 0 GIC_SPI 448 IRQ_TYPE_LEVEL_HIGH 0>;
+-			msi-map = <0x3000 &gic_its 0x3000 0x3000>;
 +		sky1_crash: cix_se_pm_crash {
 +			compatible = "cix,se_pm_crash";
-+			status = "disabled";
-+		};
-+
+ 			status = "disabled";
+ 		};
+ 
+-		gic: interrupt-controller@e010000 {
+-			compatible = "arm,gic-v3";
+-			reg = <0x0 0x0e010000 0 0x10000>,	/* GICD */
+-			      <0x0 0x0e090000 0 0x300000>;       /* GICR * 12 */
+-			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_LOW 0>;
+-			#interrupt-cells = <4>;
+-			interrupt-controller;
 +		gmac_rcsu: gmac_rcsu@9310000 {
 +			compatible = "sky1,gmac_rcsu", "syscon";
 +			reg = <0x0 0x09310000 0x0 0x1000>;
@@ -6970,9 +7155,15 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +
 +		sky1_usbss_0:usb@9000000 {
 +			compatible = "cix,sky1-usbssp";
-+			#address-cells = <2>;
-+			#size-cells = <2>;
-+			ranges;
+ 			#address-cells = <2>;
+ 			#size-cells = <2>;
+ 			ranges;
+-
+-			gic_its: msi-controller@e050000 {
+-				compatible = "arm,gic-v3-its";
+-				reg = <0x0 0x0e050000 0x0 0x30000>;
+-				msi-controller;
+-				#msi-cells = <1>;
 +			reg = <0x00 0x09000310 0x00 0x4>,
 +				<0x00 0x09000400 0x00 0x4>;
 +			reg-names = "axi_property", "controller_status";
@@ -7007,9 +7198,13 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				phy-names = "cdnsp,usb3-phy";
 +				usb3-lpm-capable;
 +				status = "disabled";
-+			};
+ 			};
 +		};
-+
+ 
+-			ppi-partitions {
+-				ppi_partition0: interrupt-partition-0 {
+-					affinity = <&cpu0 &cpu1 &cpu2 &cpu3>;
+-				};
 +		usb2_phy4:usb-phy@9020000 {
 +			compatible = "cix,sky1-usb2-phy";
 +			resets = <&src SKY1_USBPHY_HS4_PRST_N>;
@@ -7017,7 +7212,10 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			#phy-cells = <0>;
 +			status = "disabled";
 +		};
-+
+ 
+-				ppi_partition1: interrupt-partition-1 {
+-					affinity = <&cpu4 &cpu5 &cpu6 &cpu7 &cpu8 &cpu9 &cpu10 &cpu11>;
+-				};
 +		usbc_phy0:usb-phy@9030000 {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
@@ -7043,9 +7241,13 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				#phy-cells = <0>;
 +				reg = <0x1>;
 +				status = "disabled";
-+			};
-+		};
-+
+ 			};
+ 		};
+ 
+-		s5_syscon: syscon@16000000 {
+-			compatible = "cix,sky1-s5-system-control", "syscon";
+-			reg = <0x0 0x16000000 0x0 0x1000>;
+-			#reset-cells = <1>;
 +		sky1_usbss_1:usb@9070000 {
 +			compatible = "cix,sky1-usbssp";
 +			#address-cells = <2>;
@@ -7086,8 +7288,12 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				usb3-lpm-capable;
 +				status = "disabled";
 +			};
-+		};
-+
+ 		};
+ 
+-		s5_gpio0: gpio-controller@16004000 {
+-			compatible = "cdns,gpio-r1p02";
+-			reg = <0x0 0x16004000 0x0 0x1000>;
+-			clocks = <&s5_gpio_apb_clk>;
 +		usb2_phy5:usb-phy@9090000 {
 +			compatible = "cix,sky1-usb2-phy";
 +			resets = <&src SKY1_USBPHY_HS5_PRST_N>;
@@ -7095,18 +7301,24 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			#phy-cells = <0>;
 +			status = "disabled";
 +		};
-+
+ 
+-			interrupts = <GIC_SPI 372 IRQ_TYPE_LEVEL_HIGH 0>;
 +		usbc_phy1:usb-phy@90A0000 {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +			compatible = "cix,sky1-usbdp-phy";
 +			reg = <0x00 0x90A0000 0x00 0x40000>;
 +			status = "disabled";
-+
+ 
+-			gpio-controller;
+-			#gpio-cells = <2>;
+-			ngpios = <32>;
 +			resets = <&src SKY1_USB_DP_PHY1_RST_N>,
 +					<&src SKY1_USB_DP_PHY1_PRST_N>;
 +			reset-names = "reset", "preset";
-+
+ 
+-			interrupt-controller;
+-			#interrupt-cells = <2>;
 +			clocks = <&scmi_clk CLK_TREE_USB3C_0_PHY3_GATE>;
 +			clock-names = "pclk";
 +
@@ -7142,7 +7354,7 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			clock-names = "sof_clk", "usb_aclk", "lpm_clk", "usb_pclk";
 +			cix,usb_syscon = <&src>;
 +			axi_bmax_value = <0x7>;
-+			status = "disabled";
+ 			status = "disabled";
 +			usbss_2: usb-controller@90f0000 {
 +				compatible = "cdns,usbssp";
 +				reg = <0x00 0x90f0000 0x00 0x4000>,
@@ -7164,8 +7376,12 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				usb3-lpm-capable;
 +				status = "disabled";
 +			};
-+		};
-+
+ 		};
+ 
+-		s5_gpio1: gpio-controller@16005000 {
+-			compatible = "cdns,gpio-r1p02";
+-			reg = <0x0 0x16005000 0x0 0x1000>;
+-			clocks = <&s5_gpio_apb_clk>;
 +		usb2_phy8:usb-phy@9100000 {
 +			compatible = "cix,sky1-usb2-phy";
 +			resets = <&src SKY1_USBPHY_HS8_PRST_N>;
@@ -7173,18 +7389,24 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			#phy-cells = <0>;
 +			status = "disabled";
 +		};
-+
+ 
+-			interrupts = <GIC_SPI 373 IRQ_TYPE_LEVEL_HIGH 0>;
 +		usbc_phy2:usb-phy@9110000 {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +			compatible = "cix,sky1-usbdp-phy";
 +			reg = <0x00 0x9110000 0x00 0x40000>;
 +			status = "disabled";
-+
+ 
+-			gpio-controller;
+-			#gpio-cells = <2>;
+-			ngpios = <10>;
 +			resets = <&src SKY1_USB_DP_PHY2_RST_N>,
 +					<&src SKY1_USB_DP_PHY2_PRST_N>;
 +			reset-names = "reset", "preset";
-+
+ 
+-			interrupt-controller;
+-			#interrupt-cells = <2>;
 +			clocks = <&scmi_clk CLK_TREE_USB3C_1_PHY3_GATE>;
 +			clock-names = "pclk";
 +
@@ -7220,7 +7442,7 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			clock-names = "sof_clk", "usb_aclk", "lpm_clk", "usb_pclk";
 +			cix,usb_syscon = <&src>;
 +			axi_bmax_value = <0x7>;
-+			status = "disabled";
+ 			status = "disabled";
 +			usbss_3: usb-controller@9160000 {
 +				compatible = "cdns,usbssp";
 +				reg = <0x00 0x9160000 0x00 0x4000>,
@@ -7242,8 +7464,12 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				usb3-lpm-capable;
 +				status = "disabled";
 +			};
-+		};
-+
+ 		};
+ 
+-		s5_gpio2: gpio-controller@16006000 {
+-			compatible = "cdns,gpio-r1p02";
+-			reg = <0x0 0x16006000 0x0 0x1000>;
+-			clocks = <&s5_gpio_apb_clk>;
 +		usb2_phy9:usb-phy@9170000 {
 +			compatible = "cix,sky1-usb2-phy";
 +			resets = <&src SKY1_USBPHY_HS9_PRST_N>;
@@ -7251,18 +7477,24 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			#phy-cells = <0>;
 +			status = "disabled";
 +		};
-+
+ 
+-			interrupts = <GIC_SPI 374 IRQ_TYPE_LEVEL_HIGH 0>;
 +		usbc_phy3:usb-phy@9180000 {
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +			compatible = "cix,sky1-usbdp-phy";
 +			reg = <0x00 0x9180000 0x00 0x40000>;
 +			status = "disabled";
-+
+ 
+-			gpio-controller;
+-			#gpio-cells = <2>;
+-			ngpios = <10>;
 +			resets = <&src SKY1_USB_DP_PHY3_RST_N>,
 +					<&src SKY1_USB_DP_PHY3_PRST_N>;
 +			reset-names = "reset", "preset";
-+
+ 
+-			interrupt-controller;
+-			#interrupt-cells = <2>;
 +			clocks = <&scmi_clk CLK_TREE_USB3C_2_PHY3_GATE>;
 +			clock-names = "pclk";
 +
@@ -7298,7 +7530,7 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			clock-names = "sof_clk", "usb_aclk", "lpm_clk", "usb_pclk";
 +			cix,usb_syscon = <&src>;
 +			axi_bmax_value = <0x7>;
-+			status = "disabled";
+ 			status = "disabled";
 +			usbss_4: usb-controller@91d0000 {
 +				compatible = "cdns,usbssp";
 +				reg = <0x00 0x91d0000 0x00 0x4000>,
@@ -7320,8 +7552,11 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				usb3-lpm-capable;
 +				status = "disabled";
 +			};
-+		};
-+
+ 		};
+ 
+-		iomuxc_s5: pinctrl@16007000 {
+-			compatible = "cix,sky1-pinctrl-s5";
+-			reg = <0x0 0x16007000 0x0 0x1000>;
 +		sky1_usbss_5:usb@91c0304 {
 +			compatible = "cix,sky1-usbssp";
 +			#address-cells = <2>;
@@ -7362,16 +7597,31 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				usb3-lpm-capable;
 +				status = "disabled";
 +			};
-+		};
-+
+ 		};
+ 
+-		ap_tfa_scmi_mem: shmem@84380000 {
+-			compatible = "arm,scmi-shmem";
+-			reg = <0x0 0x84380000 0x0 0x80>;
+-			reg-io-width = <4>;
 +		usb2_phy6:usb-phy@91f0000 {
 +			compatible = "cix,sky1-usb2-phy";
 +			resets = <&src SKY1_USBPHY_HS6_PRST_N>;
 +			reset-names = "preset";
 +			#phy-cells = <0>;
 +			status = "disabled";
-+		};
-+
+ 		};
+-	};
+ 
+-	timer {
+-		compatible = "arm,armv8-timer";
+-		interrupt-names = "sec-phys", "phys", "virt", "hyp-phys", "hyp-virt";
+-		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW 0>,
+-			     <GIC_PPI 14 IRQ_TYPE_LEVEL_LOW 0>,
+-			     <GIC_PPI 11 IRQ_TYPE_LEVEL_LOW 0>,
+-			     <GIC_PPI 10 IRQ_TYPE_LEVEL_LOW 0>,
+-			     <GIC_PPI 12 IRQ_TYPE_LEVEL_LOW 0>;
+-	};
+-};
 +		usb2_phy7:usb-phy@9200000 {
 +			compatible = "cix,sky1-usb2-phy";
 +			resets = <&src SKY1_USBPHY_HS7_PRST_N>;
@@ -7609,7 +7859,7 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			device-id = <0x0001>;
 +			#address-cells = <3>;
 +			#size-cells = <2>;
- 			bus-range = <0xc0 0xff>;
++			bus-range = <0xc0 0xff>;
 +			max-link-speed = <4>;
 +			num-lanes = <8>;
 +			max-payload = <512>;
@@ -7874,7 +8124,7 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +				  <0x00 0x0a060000 0x00 0x10000>,
 +				  <0x00 0x20000000 0x00 0x3000000>,
 +				  <0x00 0x30000000 0x00 0x00100000>;
- 			device_type = "pci";
++			device_type = "pci";
 +			vendor-id = <0x1f6c>;
 +			device-id = <0x0001>;
 +			#address-cells = <3>;
@@ -7895,13 +8145,8 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			reset-names = "pcie_reset";
 +			sky1,pcie-ctrl-id = <0x4>;
 +			msi-map = <0x0000 &its_pcie 0x0000 0x3000>;
- 			#interrupt-cells = <1>;
- 			interrupt-map-mask = <0 0 0 0x7>;
--			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 407 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 2 &gic 0 0 GIC_SPI 408 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 3 &gic 0 0 GIC_SPI 409 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 4 &gic 0 0 GIC_SPI 410 IRQ_TYPE_LEVEL_HIGH 0>;
--			msi-map = <0xc000 &gic_its 0xc000 0x4000>;
++			#interrupt-cells = <1>;
++			interrupt-map-mask = <0 0 0 0x7>;
 +			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 436 IRQ_TYPE_LEVEL_HIGH>,
 +			                <0 0 0 2 &gic 0 0 GIC_SPI 437 IRQ_TYPE_LEVEL_HIGH>,
 +			                <0 0 0 3 &gic 0 0 GIC_SPI 438 IRQ_TYPE_LEVEL_HIGH>,
@@ -9059,7 +9304,7 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			#address-cells = <1>;
 +			#size-cells = <0>;
 +			shmem = <&ap_tfa_scmi_mem>;
- 			status = "disabled";
++			status = "disabled";
 +
 +			smc_devpd: protocol@11 {
 +				reg = <0x11>;
@@ -9397,31 +9642,8 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +					type = "passive";
 +				};
 +			};
- 		};
- 
--		pcie_x4_rc: pcie@a070000 {
--			compatible = "cix,sky1-pcie-host";
--			reg = <0x00 0x0a070000 0x00 0x10000>,
--			      <0x00 0x29000000 0x00 0x3000000>,
--			      <0x00 0x0a060300 0x00 0x40>,
--			      <0x00 0x0a060400 0x00 0x40>,
--			      <0x00 0x50000000 0x00 0x00100000>;
--			reg-names = "reg", "cfg", "rcsu_strap", "rcsu_status", "msg";
--			ranges = <0x01000000 0x00 0x50100000 0x00 0x50100000 0x00 0x00100000>,
--				 <0x02000000 0x00 0x50200000 0x00 0x50200000 0x00 0x0fe00000>,
--				 <0x43000000 0x14 0x00000000 0x14 0x00000000 0x04 0x00000000>;
--			#address-cells = <3>;
--			#size-cells = <2>;
--			bus-range = <0x90 0xbf>;
--			device_type = "pci";
--			#interrupt-cells = <1>;
--			interrupt-map-mask = <0 0 0 0x7>;
--			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 417 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 2 &gic 0 0 GIC_SPI 418 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 3 &gic 0 0 GIC_SPI 419 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 4 &gic 0 0 GIC_SPI 420 IRQ_TYPE_LEVEL_HIGH 0>;
--			msi-map = <0x9000 &gic_its 0x9000 0x3000>;
--			status = "disabled";
++		};
++
 +		gpu-avg-thermal {
 +			polling-delay-passive = <100>;
 +			polling-delay = <1000>;
@@ -9452,31 +9674,9 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 +				};
 +			};
- 		};
++		};
 +        };
- 
--		pcie_x2_rc: pcie@a0c0000 {
--			compatible = "cix,sky1-pcie-host";
--			reg = <0x00 0x0a0c0000 0x00 0x10000>,
--			      <0x00 0x26000000 0x00 0x3000000>,
--			      <0x00 0x0a0600340 0x00 0x20>,
--			      <0x00 0x0a0600440 0x00 0x20>,
--			      <0x00 0x40000000 0x00 0x00100000>;
--			reg-names = "reg", "cfg", "rcsu_strap", "rcsu_status", "msg";
--			ranges = <0x01000000 0x0 0x40100000 0x0 0x40100000 0x0 0x00100000>,
--				 <0x02000000 0x0 0x40200000 0x0 0x40200000 0x0 0x0fe00000>,
--				 <0x43000000 0x10 0x00000000 0x10 0x00000000 0x04 0x00000000>;
--			#address-cells = <3>;
--			#size-cells = <2>;
--			bus-range = <0x60 0x8f>;
--			device_type = "pci";
--			#interrupt-cells = <1>;
--			interrupt-map-mask = <0 0 0 0x7>;
--			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 427 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 2 &gic 0 0 GIC_SPI 428 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 3 &gic 0 0 GIC_SPI 429 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 4 &gic 0 0 GIC_SPI 430 IRQ_TYPE_LEVEL_HIGH 0>;
--			msi-map = <0x6000 &gic_its 0x6000 0x3000>;
++
 +	cix_dst: cix_dst {
 +		compatible = "cix,dst", "simple-bus";
 +		ramlog_addr = <0x0 0x83DA0000>;
@@ -9497,31 +9697,9 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			compatible = "rdr,exceptiontrace";
 +			area_num = <1>;
 +			area_sizes = < 0x1000 >;
- 			status = "disabled";
- 		};
- 
--		pcie_x1_0_rc: pcie@a0d0000 {
--			compatible = "cix,sky1-pcie-host";
--			reg = <0x00 0x0a0d0000 0x00 0x10000>,
--			      <0x00 0x20000000 0x00 0x3000000>,
--			      <0x00 0x0a060360 0x00 0x20>,
--			      <0x00 0x0a060460 0x00 0x20>,
--			      <0x00 0x30000000 0x00 0x00100000>;
--			reg-names = "reg", "cfg", "rcsu_strap", "rcsu_status", "msg";
--			ranges = <0x01000000 0x0 0x30100000 0x0 0x30100000 0x0 0x00100000>,
--				 <0x02000000 0x0 0x30200000 0x0 0x30200000 0x0 0x07e00000>,
--				 <0x43000000 0x08 0x00000000 0x08 0x00000000 0x04 0x00000000>;
--			#address-cells = <3>;
--			#size-cells = <2>;
--			bus-range = <0x00 0x2f>;
--			device_type = "pci";
--			#interrupt-cells = <1>;
--			interrupt-map-mask = <0 0 0 0x7>;
--			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 436 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 2 &gic 0 0 GIC_SPI 437 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 3 &gic 0 0 GIC_SPI 438 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 4 &gic 0 0 GIC_SPI 439 IRQ_TYPE_LEVEL_HIGH 0>;
--			msi-map = <0x0000 &gic_its 0x0000 0x3000>;
++			status = "disabled";
++		};
++
 +		ap_adapter: ap_adapter{
 +			compatible = "rdr,rdr_ap_adapter";
 +			/* reg-dump-regions = <3>; */
@@ -9546,25 +9724,10 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			ap_dump_mem_modu_gap_size = <256>;
 +			ap_log_console_size = <0xc000>;
 +			ap_log_dmesg_size = <0xc000>;
- 			status = "disabled";
- 		};
++			status = "disabled";
++		};
 +	};
- 
--		pcie_x1_1_rc: pcie@a0e0000 {
--			compatible = "cix,sky1-pcie-host";
--			reg = <0x00 0x0a0e0000 0x00 0x10000>,
--			      <0x00 0x23000000 0x00 0x3000000>,
--			      <0x00 0x0a060380 0x00 0x20>,
--			      <0x00 0x0a060480 0x00 0x20>,
--			      <0x00 0x38000000 0x00 0x00100000>;
--			reg-names = "reg", "cfg", "rcsu_strap", "rcsu_status", "msg";
--			ranges = <0x01000000 0x0 0x38100000 0x0 0x38100000 0x0 0x00100000>,
--				 <0x02000000 0x0 0x38200000 0x0 0x38200000 0x0 0x07e00000>,
--				 <0x43000000 0x0C 0x00000000 0x0C 0x00000000 0x04 0x00000000>;
--			#address-cells = <3>;
--			#size-cells = <2>;
--			bus-range = <0x30 0x5f>;
--			device_type = "pci";
++
 +	ddr_ctrl0: ddr_ctrl@c010000 {
 +		compatible = "cadence,ddr_ctrl";
 +		reg = <0x0 0x0C010000 0x0 0x20000>,
@@ -9573,15 +9736,7 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +		channel_id = <0x0>;
 +		status = "disabled";
 +	};
- 
--			#interrupt-cells = <1>;
--			interrupt-map-mask = <0 0 0 0x7>;
--			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 445 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 2 &gic 0 0 GIC_SPI 446 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 3 &gic 0 0 GIC_SPI 447 IRQ_TYPE_LEVEL_HIGH 0>,
--					<0 0 0 4 &gic 0 0 GIC_SPI 448 IRQ_TYPE_LEVEL_HIGH 0>;
--			msi-map = <0x3000 &gic_its 0x3000 0x3000>;
--			status = "disabled";
++
 +	ddr_ctrl1: ddr_ctrl@c030000 {
 +		compatible = "cadence,ddr_ctrl";
 +		reg = <0x0 0x0C030000 0x0 0x20000>,
@@ -9621,44 +9776,26 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +					remote-endpoint = <&dsu_funnel_in_port0>;
 +				};
 +			};
- 		};
++		};
 +#endif
 +	};
- 
--		gic: interrupt-controller@e010000 {
--			compatible = "arm,gic-v3";
--			reg = <0x0 0x0e010000 0 0x10000>,	/* GICD */
--			      <0x0 0x0e090000 0 0x300000>;       /* GICR * 12 */
--			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_LOW 0>;
--			#interrupt-cells = <4>;
--			interrupt-controller;
--			#address-cells = <2>;
--			#size-cells = <2>;
--			ranges;
++
 +	ete1: ete1 {
 +		compatible = "arm,embedded-trace-extension";
 +		cpu = <&cpu1>;
 +		status = "okay";
- 
--			gic_its: msi-controller@e050000 {
--				compatible = "arm,gic-v3-its";
--				reg = <0x0 0x0e050000 0x0 0x30000>;
--				msi-controller;
--				#msi-cells = <1>;
++
 +#ifndef SKY1_CORESIGHT_TRBE_SUPPORT
 +		out-ports {
 +			port {
 +				ete_out_port1: endpoint {
 +					remote-endpoint = <&dsu_funnel_in_port1>;
 +				};
- 			};
++			};
 +		};
 +#endif
 +	};
- 
--			ppi-partitions {
--				ppi_partition0: interrupt-partition-0 {
--					affinity = <&cpu0 &cpu1 &cpu2 &cpu3>;
++
 +	ete2: ete2 {
 +		compatible = "arm,embedded-trace-extension";
 +		cpu = <&cpu2>;
@@ -9669,14 +9806,12 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			port {
 +				ete_out_port2: endpoint {
 +					remote-endpoint = <&dsu_funnel_in_port2>;
- 				};
++				};
 +			};
 +		};
 +#endif
 +	};
- 
--				ppi_partition1: interrupt-partition-1 {
--					affinity = <&cpu4 &cpu5 &cpu6 &cpu7 &cpu8 &cpu9 &cpu10 &cpu11>;
++
 +	ete3: ete3 {
 +		compatible = "arm,embedded-trace-extension";
 +		cpu = <&cpu3>;
@@ -9687,15 +9822,12 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +			port {
 +				ete_out_port3: endpoint {
 +					remote-endpoint = <&dsu_funnel_in_port3>;
- 				};
- 			};
- 		};
++				};
++			};
++		};
 +#endif
 +	};
- 
--		iomuxc_s5: pinctrl@16007000 {
--			compatible = "cix,sky1-pinctrl-s5";
--			reg = <0x0 0x16007000 0x0 0x1000>;
++
 +	ete4: ete4 {
 +		compatible = "arm,embedded-trace-extension";
 +		cpu = <&cpu4>;
@@ -9708,18 +9840,10 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +					remote-endpoint = <&dsu_funnel_in_port4>;
 +				};
 +			};
- 		};
++		};
 +#endif
- 	};
- 
--	timer {
--		compatible = "arm,armv8-timer";
--		interrupt-names = "sec-phys", "phys", "virt", "hyp-phys", "hyp-virt";
--		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW 0>,
--			     <GIC_PPI 14 IRQ_TYPE_LEVEL_LOW 0>,
--			     <GIC_PPI 11 IRQ_TYPE_LEVEL_LOW 0>,
--			     <GIC_PPI 10 IRQ_TYPE_LEVEL_LOW 0>,
--			     <GIC_PPI 12 IRQ_TYPE_LEVEL_LOW 0>;
++	};
++
 +	ete5: ete5 {
 +		compatible = "arm,embedded-trace-extension";
 +		cpu = <&cpu5>;
@@ -10116,14 +10240,14 @@ index 64b76905cbff5..a6b034ba46e4d 100644
 +		interrupts = <GIC_PPI 2 IRQ_TYPE_LEVEL_LOW 0>;
 +		interrupt-parent = <&gic>;
 +		status = "okay";
- 	};
++	};
 +#endif
 +#endif
- };
++};
 +
 diff --git a/include/dt-bindings/clock/sky1-audss.h b/include/dt-bindings/clock/sky1-audss.h
 new file mode 100644
-index 0000000000000..8d9a185581c99
+index 000000000000..8d9a185581c9
 --- /dev/null
 +++ b/include/dt-bindings/clock/sky1-audss.h
 @@ -0,0 +1,71 @@
@@ -10200,7 +10324,7 @@ index 0000000000000..8d9a185581c99
 +#endif
 diff --git a/include/dt-bindings/phy/phy-cadence-torrent.h b/include/dt-bindings/phy/phy-cadence-torrent.h
 new file mode 100644
-index 0000000000000..987e8b7d788bb
+index 000000000000..987e8b7d788b
 --- /dev/null
 +++ b/include/dt-bindings/phy/phy-cadence-torrent.h
 @@ -0,0 +1,62 @@
@@ -10268,7 +10392,7 @@ index 0000000000000..987e8b7d788bb
 +#endif /* _DT_BINDINGS_TORRENT_SERDES_H */
 diff --git a/include/dt-bindings/pinctrl/pads-sky1.h b/include/dt-bindings/pinctrl/pads-sky1.h
 new file mode 100644
-index 0000000000000..e659db9b38a20
+index 000000000000..e659db9b38a2
 --- /dev/null
 +++ b/include/dt-bindings/pinctrl/pads-sky1.h
 @@ -0,0 +1,587 @@
@@ -10861,7 +10985,7 @@ index 0000000000000..e659db9b38a20
 +#endif
 diff --git a/include/dt-bindings/power/sky1-power.h b/include/dt-bindings/power/sky1-power.h
 new file mode 100644
-index 0000000000000..c989bfbecb1ee
+index 000000000000..c989bfbecb1e
 --- /dev/null
 +++ b/include/dt-bindings/power/sky1-power.h
 @@ -0,0 +1,48 @@
@@ -10915,7 +11039,7 @@ index 0000000000000..c989bfbecb1ee
 +#endif
 diff --git a/include/dt-bindings/reset/sky1-reset-audss.h b/include/dt-bindings/reset/sky1-reset-audss.h
 new file mode 100644
-index 0000000000000..d5d1465a8bd8b
+index 000000000000..d5d1465a8bd8
 --- /dev/null
 +++ b/include/dt-bindings/reset/sky1-reset-audss.h
 @@ -0,0 +1,23 @@
@@ -10944,7 +11068,7 @@ index 0000000000000..d5d1465a8bd8b
 +#endif
 diff --git a/include/dt-bindings/reset/sky1-reset-fch.h b/include/dt-bindings/reset/sky1-reset-fch.h
 new file mode 100644
-index 0000000000000..d7e478face9ff
+index 000000000000..d7e478face9f
 --- /dev/null
 +++ b/include/dt-bindings/reset/sky1-reset-fch.h
 @@ -0,0 +1,44 @@
@@ -10994,7 +11118,7 @@ index 0000000000000..d7e478face9ff
 +
 diff --git a/include/dt-bindings/reset/sky1-reset.h b/include/dt-bindings/reset/sky1-reset.h
 new file mode 100644
-index 0000000000000..b43dbf39fdc7e
+index 000000000000..b43dbf39fdc7
 --- /dev/null
 +++ b/include/dt-bindings/reset/sky1-reset.h
 @@ -0,0 +1,166 @@
@@ -11166,7 +11290,7 @@ index 0000000000000..b43dbf39fdc7e
 +
 diff --git a/include/dt-bindings/thermal/sky1-thermal.h b/include/dt-bindings/thermal/sky1-thermal.h
 new file mode 100644
-index 0000000000000..a13e68c3daa8a
+index 000000000000..a13e68c3daa8
 --- /dev/null
 +++ b/include/dt-bindings/thermal/sky1-thermal.h
 @@ -0,0 +1,29 @@
@@ -11199,3 +11323,6 @@ index 0000000000000..a13e68c3daa8a
 +#define REG_SENSOR_DEV_COUNT	32
 +
 +#endif
+-- 
+2.54.0
+

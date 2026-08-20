@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 673458ea0f5a1a975b7be9023f8f66627820e73c Mon Sep 17 00:00:00 2001
 From: Entrpi <entrpi@proton.me>
 Date: Thu, 5 Feb 2026 23:32:47 +1100
-Subject: [PATCH] ASoC/ALSA: CIX Sky1 audio fixes
+Subject: [PATCH 056/145] ASoC/ALSA: CIX Sky1 audio fixes
 
 HDA:
 - Add CIX Phecda board fixup (SSID 0x10ec:0x129e) to disable
@@ -13,24 +13,35 @@ I2S-SC:
 - Fix 192KHz mclk_fs from 128 to 256 for proper codec operation
 - Set trigger ordering for DMA vs I2S sequencing
 ---
- sound/hda/codecs/realtek/alc269.c | 22 ++++++++++++++++++++++
- sound/soc/cix/card-utils.c        |  6 +++++-
- sound/soc/cix/cdns_i2s_sc.c       | 28 ++++++++++++++++++----------
- 3 files changed, 45 insertions(+), 11 deletions(-)
+ sound/hda/codecs/realtek/alc269.c | 105 ++++++------------------------
+ sound/soc/cix/card-utils.c        |   6 +-
+ sound/soc/cix/cdns_i2s_sc.c       |  28 +++++---
+ 3 files changed, 43 insertions(+), 96 deletions(-)
 
 diff --git a/sound/hda/codecs/realtek/alc269.c b/sound/hda/codecs/realtek/alc269.c
-index 15203c5855eb5..119bf8fd01268 100644
+index 48a2e7f2ebb1..10a63d474b54 100644
 --- a/sound/hda/codecs/realtek/alc269.c
 +++ b/sound/hda/codecs/realtek/alc269.c
-@@ -3816,6 +3816,7 @@ enum {
- 	ALC245_FIXUP_HP_TAS2781_I2C_MUTE_LED,
+@@ -4215,17 +4215,7 @@ enum {
+ 	ALC245_FIXUP_HP_TAS2781_I2C_MUTE_LED_INVERTED,
  	ALC288_FIXUP_SURFACE_SWAP_DACS,
  	ALC236_FIXUP_HP_MUTE_LED_MICMUTE_GPIO,
+-	ALC233_FIXUP_LENOVO_GPIO2_MIC_HOTKEY,
+-	ALC245_FIXUP_BASS_HP_DAC,
+-	ALC245_FIXUP_ACER_MICMUTE_LED,
+-	ALC245_FIXUP_CS35L41_I2C_2_MUTE_LED,
+-	ALC236_FIXUP_HP_DMIC,
+-	ALC256_FIXUP_HONOR_MRB_XXX_M1020_AUDIO,
+-	ALC245_FIXUP_HP_ENVY_X360_15_FH0XXX,
+-	ALC287_FIXUP_ACER_MICMUTE_LED,
+-	ALC236_FIXUP_DELL_HP_POP_NOISE,
+-	ALC274_FIXUP_HP_89E9_GPIO,
+-	ALC274_FIXUP_HP_VERBS,
 +	ALC256_FIXUP_CIX_PHECDA,
  };
  
  /* A special fixup for Lenovo C940 and Yoga Duet 7;
-@@ -3852,6 +3853,22 @@ static void alc287_fixup_lenovo_yoga_book_9i(struct hda_codec *codec,
+@@ -4262,6 +4252,22 @@ static void alc287_fixup_lenovo_yoga_book_9i(struct hda_codec *codec,
  	__snd_hda_apply_fixup(codec, id, action, 0);
  }
  
@@ -51,20 +62,93 @@ index 15203c5855eb5..119bf8fd01268 100644
 +}
 +
  static const struct hda_fixup alc269_fixups[] = {
- 	[ALC269_FIXUP_GPIO2] = {
- 		.type = HDA_FIXUP_FUNC,
-@@ -6306,6 +6323,10 @@ static const struct hda_fixup alc269_fixups[] = {
+ 	[ALC233_FIXUP_WUJIE_SPEAKERS] = {
+ 		.type = HDA_FIXUP_PINS,
+@@ -6822,81 +6828,9 @@ static const struct hda_fixup alc269_fixups[] = {
  		.type = HDA_FIXUP_FUNC,
  		.v.func = alc288_fixup_surface_swap_dacs,
  	},
+-	[ALC233_FIXUP_LENOVO_GPIO2_MIC_HOTKEY] = {
+-		.type = HDA_FIXUP_FUNC,
+-		.v.func = alc233_fixup_lenovo_gpio2_mic_hotkey,
+-	},
+-	[ALC245_FIXUP_BASS_HP_DAC] = {
+-		.type = HDA_FIXUP_FUNC,
+-		/* Borrow the DAC routing selected for those Thinkpads */
+-		.v.func = alc285_fixup_thinkpad_x1_gen7,
+-	},
+-	[ALC245_FIXUP_ACER_MICMUTE_LED] = {
+-		.type = HDA_FIXUP_FUNC,
+-		.v.func = alc285_fixup_hp_coef_micmute_led,
+-		.chained = true,
+-		.chain_id = ALC2XX_FIXUP_HEADSET_MIC,
+-	},
+-	[ALC245_FIXUP_CS35L41_I2C_2_MUTE_LED] = {
 +	[ALC256_FIXUP_CIX_PHECDA] = {
-+		.type = HDA_FIXUP_FUNC,
+ 		.type = HDA_FIXUP_FUNC,
+-		.v.func = alc245_fixup_hp_mute_led_coefbit,
+-		.chained = true,
+-		.chain_id = ALC287_FIXUP_CS35L41_I2C_2,
+-	},
+-	[ALC236_FIXUP_HP_DMIC] = {
+-		.type = HDA_FIXUP_PINS,
+-		.v.pins = (const struct hda_pintbl[]) {
+-			{ 0x12, 0x90a60160 }, /* use as internal mic */
+-			{ }
+-		},
+-	},
+-	[ALC256_FIXUP_HONOR_MRB_XXX_M1020_AUDIO] = {
+-		.type = HDA_FIXUP_PINS,
+-		.v.pins = (const struct hda_pintbl[]) {
+-			{ 0x14, 0x90170111 },
+-			{ 0x19, 0x03a1113c },
+-			{ 0x1a, 0x22a190a0 },
+-			{ 0x1b, 0x90170110 },
+-			{ }
+-		}
+-	},
+-	[ALC245_FIXUP_HP_ENVY_X360_15_FH0XXX] = {
+-		.type = HDA_FIXUP_FUNC,
+-		.v.func = cs35l41_fixup_i2c_two,
+-		.chained = true,
+-		.chain_id = ALC245_FIXUP_HP_X360_MUTE_LEDS
+-	},
+-	[ALC287_FIXUP_ACER_MICMUTE_LED] = {
+-		.type = HDA_FIXUP_FUNC,
+-		.v.func = alc287_fixup_acer_micmute_led,
+-		.chained = true,
+-		.chain_id = ALC2XX_FIXUP_HEADSET_MIC,
+-	},
+-	[ALC236_FIXUP_DELL_HP_POP_NOISE] = {
+-		.type = HDA_FIXUP_FUNC,
+-		.v.func = alc285_fixup_invalidate_dacs,
+-	},
+-	[ALC274_FIXUP_HP_89E9_GPIO] = {
+-		.type = HDA_FIXUP_FUNC,
+-		.v.func = alc274_fixup_hp_89e9_amp,
+-	},
+-	[ALC274_FIXUP_HP_VERBS] = {
+-		.type = HDA_FIXUP_VERBS,
+-		.v.verbs = (const struct hda_verb[]) {
+-			{ 0x20, AC_VERB_SET_COEF_INDEX, 0x0b },
+-			{ 0x20, AC_VERB_SET_PROC_COEF, 0x7778 },
+-			{ 0x20, AC_VERB_SET_COEF_INDEX, 0x10 },
+-			{ 0x20, AC_VERB_SET_PROC_COEF, 0xc580 },
+-			{ 0x20, AC_VERB_SET_COEF_INDEX, 0x26 },
+-			{ 0x20, AC_VERB_SET_PROC_COEF, 0x5757 },
+-			{ 0x20, AC_VERB_SET_COEF_INDEX, 0x62 },
+-			{ 0x20, AC_VERB_SET_PROC_COEF, 0xa007 },
+-			{ 0x20, AC_VERB_SET_COEF_INDEX, 0x6b },
+-			{ 0x20, AC_VERB_SET_PROC_COEF, 0x0060 },
+-			{ }
+-		},
+-		.chained = true,
+-		.chain_id = ALC274_FIXUP_HP_89E9_GPIO,
 +		.v.func = alc_fixup_cix_phecda,
-+	},
+ 	},
  };
  
- static const struct hda_quirk alc269_fixup_tbl[] = {
-@@ -7032,6 +7053,7 @@ static const struct hda_quirk alc269_fixup_tbl[] = {
+@@ -7693,6 +7627,7 @@ static const struct hda_quirk alc269_fixup_tbl[] = {
  	SND_PCI_QUIRK(0x10ec, 0x124c, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
  	SND_PCI_QUIRK(0x10ec, 0x1252, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
  	SND_PCI_QUIRK(0x10ec, 0x1254, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
@@ -73,7 +157,7 @@ index 15203c5855eb5..119bf8fd01268 100644
  	SND_PCI_QUIRK(0x10ec, 0x12f6, "Intel Reference board", ALC295_FIXUP_CHROME_BOOK),
  	SND_PCI_QUIRK(0x10f7, 0x8338, "Panasonic CF-SZ6", ALC269_FIXUP_ASPIRE_HEADSET_MIC),
 diff --git a/sound/soc/cix/card-utils.c b/sound/soc/cix/card-utils.c
-index f349edad35d83..880f3e011aa2e 100644
+index f349edad35d8..880f3e011aa2 100644
 --- a/sound/soc/cix/card-utils.c
 +++ b/sound/soc/cix/card-utils.c
 @@ -163,7 +163,7 @@ static int dai_set_sysclk(struct snd_pcm_substream *substream,
@@ -97,7 +181,7 @@ index f349edad35d83..880f3e011aa2e 100644
  	card->dai_link = link;
  	card->suspend_post = cix_card_suspend_post;
 diff --git a/sound/soc/cix/cdns_i2s_sc.c b/sound/soc/cix/cdns_i2s_sc.c
-index d117c14c83157..59e9b98ca7fac 100644
+index d117c14c8315..59e9b98ca7fa 100644
 --- a/sound/soc/cix/cdns_i2s_sc.c
 +++ b/sound/soc/cix/cdns_i2s_sc.c
 @@ -339,31 +339,39 @@ static void cdns_i2s_sc_rxtx_common_config(struct cdns_i2s_sc_priv *i2s_sc_priv,
@@ -167,3 +251,6 @@ index d117c14c83157..59e9b98ca7fac 100644
  	.trigger = cdns_i2s_sc_trigger,
  };
  
+-- 
+2.54.0
+
