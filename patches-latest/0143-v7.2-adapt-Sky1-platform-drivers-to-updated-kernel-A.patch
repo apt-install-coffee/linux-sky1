@@ -1,4 +1,4 @@
-From ba12b13de97ac21291353aad4011fc7962204401 Mon Sep 17 00:00:00 2001
+From d7cf6d418df6d5fb7a82603636be9f384bfc8273 Mon Sep 17 00:00:00 2001
 From: Jordan McCallum <apt-install-coffee@proton.me>
 Date: Thu, 20 Aug 2026 16:55:43 +1000
 Subject: [PATCH 143/145] v7.2: adapt Sky1 platform drivers to updated kernel

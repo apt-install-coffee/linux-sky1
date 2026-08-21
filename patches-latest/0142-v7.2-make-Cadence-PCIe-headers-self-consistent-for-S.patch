@@ -1,4 +1,4 @@
-From 42abd0325a99d4a3172e2cade32e3249d93d0adf Mon Sep 17 00:00:00 2001
+From 1b381991b04a383ed6f6a41ff99d75ea0a9a65a4 Mon Sep 17 00:00:00 2001
 From: Jordan McCallum <apt-install-coffee@proton.me>
 Date: Thu, 20 Aug 2026 16:55:42 +1000
 Subject: [PATCH 142/145] v7.2: make Cadence PCIe headers self-consistent for
@@ -10,9 +10,9 @@ register layout, so keep the fork's pcie-cadence.h/pcie-cadence-host.c
 versions consistently (the other Cadence users - j721e/sg2042/ep/plat -
 are disabled in the Sky1 config) rather than a mix of both.
 ---
- .../controller/cadence/pcie-cadence-host.c    |  9 -------
- drivers/pci/controller/cadence/pcie-cadence.h | 25 -------------------
- 2 files changed, 34 deletions(-)
+ .../controller/cadence/pcie-cadence-host.c    |  9 ------
+ drivers/pci/controller/cadence/pcie-cadence.h | 30 ++++---------------
+ 2 files changed, 5 insertions(+), 34 deletions(-)
 
 diff --git a/drivers/pci/controller/cadence/pcie-cadence-host.c b/drivers/pci/controller/cadence/pcie-cadence-host.c
 index b1f57422cd0a..438c0bc882dc 100644
@@ -44,10 +44,29 @@ index b1f57422cd0a..438c0bc882dc 100644
  	cdns_pcie_host_deinit(rc);
  	cdns_pcie_host_link_disable(rc);
 diff --git a/drivers/pci/controller/cadence/pcie-cadence.h b/drivers/pci/controller/cadence/pcie-cadence.h
-index c087123dfb06..5da4c36b25aa 100644
+index c087123dfb06..0c6da69f2231 100644
 --- a/drivers/pci/controller/cadence/pcie-cadence.h
 +++ b/drivers/pci/controller/cadence/pcie-cadence.h
-@@ -457,31 +457,6 @@ static inline void cdns_pcie_write_sz(void __iomem *addr, int size, u32 value)
+@@ -296,6 +296,7 @@ struct cdns_pcie {
+ 	struct phy		**phy;
+ 	struct device_link	**link;
+ 	const struct cdns_pcie_ops *ops;
++	int			max_link_speed;
+ };
+ 
+ /**
+@@ -322,6 +323,10 @@ struct cdns_pcie_rc {
+ 	unsigned int		quirk_retrain_flag:1;
+ 	unsigned int		quirk_detect_quiet_flag:1;
+ 	unsigned int		ecam_support_flag:1;
++	unsigned int		ecam_supported:1;
++	unsigned int		no_inbound_map:1;
++	unsigned int		quirk_broken_aspm_l0s:1;
++	unsigned int		quirk_broken_aspm_l1:1;
+ };
+ 
+ /**
+@@ -457,31 +462,6 @@ static inline void cdns_pcie_write_sz(void __iomem *addr, int size, u32 value)
  	writel(val, aligned_addr);
  }
  

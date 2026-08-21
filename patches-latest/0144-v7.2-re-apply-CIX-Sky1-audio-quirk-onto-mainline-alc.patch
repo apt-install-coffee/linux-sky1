@@ -1,4 +1,4 @@
-From b32366ace47d3c66999cc98ef86128dad44dd000 Mon Sep 17 00:00:00 2001
+From 5688ec8c0128ddbc5a77f8483e93a7c0dda8c277 Mon Sep 17 00:00:00 2001
 From: Jordan McCallum <apt-install-coffee@proton.me>
 Date: Thu, 20 Aug 2026 16:55:44 +1000
 Subject: [PATCH 144/145] v7.2: re-apply CIX Sky1 audio quirk onto mainline
