@@ -144,3 +144,5 @@
 0144-v7.2-re-apply-CIX-Sky1-audio-quirk-onto-mainline-alc.patch
 0145-v7.2-port-Sky1-DRM-display-stack-to-updated-DRM-APIs.patch
 0146-firmware-arm_scmi-restore-ACPI-boot-support-for-CIX-.patch
+0147-soc-cix-register-ACPI-resource-lookups-for-late-enum.patch
+0148-clk-cix-sky1-audss-keep-runtime-PM-reference-on-prob.patch

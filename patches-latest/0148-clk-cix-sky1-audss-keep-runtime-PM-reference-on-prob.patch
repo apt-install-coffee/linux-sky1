@@ -1,0 +1,42 @@
+From 27d69381a1e2d8befacee8a955ae8ed3bde46fd2 Mon Sep 17 00:00:00 2001
+From: Jordan McCallum <apt-install-coffee@proton.me>
+Date: Sat, 19 Sep 2026 04:55:38 +1000
+Subject: [PATCH 148/148] clk: cix: sky1-audss: keep runtime PM reference on
+ probe failure
+
+The error path drops the reference taken by the initial
+pm_runtime_get_noresume(), which lets the device runtime-suspend while
+the probe failure is being processed.  The runtime suspend callback
+saves register state by reading audio subsystem MMIO, which is not
+accessible until the NOC reset has been deasserted, so a failed probe
+turns into a synchronous external abort that kills the machine during
+boot.
+
+Keep the reference on probe failure as on the success path: the device
+is going away anyway, and no runtime suspend can then run.
+---
+ drivers/clk/cix/clk-sky1-audss.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/cix/clk-sky1-audss.c b/drivers/clk/cix/clk-sky1-audss.c
+index 637e7d9d98b9..1551e49a195b 100644
+--- a/drivers/clk/cix/clk-sky1-audss.c
++++ b/drivers/clk/cix/clk-sky1-audss.c
+@@ -876,7 +876,13 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
+ err_clks:
+ 	sky1_audss_clks_disable(priv);
+ err_pm:
+-	pm_runtime_put_sync(dev);
++	/*
++	 * Keep the initial pm_runtime_get_noresume() reference here as on
++	 * the success path: dropping it triggers runtime suspend, whose
++	 * register state save reads audio subsystem MMIO that is not
++	 * accessible until the NOC reset has been deasserted, causing a
++	 * fatal external abort.
++	 */
+ 	pm_runtime_disable(dev);
+ 	return ret;
+ }
+-- 
+2.55.0
+

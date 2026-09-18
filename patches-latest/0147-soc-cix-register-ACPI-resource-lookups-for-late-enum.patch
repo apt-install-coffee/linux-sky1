@@ -1,0 +1,85 @@
+From b27af7697095fc385bb1b3bf0efc4e485327061f Mon Sep 17 00:00:00 2001
+From: Jordan McCallum <apt-install-coffee@proton.me>
+Date: Sat, 19 Sep 2026 04:55:37 +1000
+Subject: [PATCH 147/148] soc: cix: register ACPI resource lookups for
+ late-enumerating devices
+
+The CIXA1019 resource-lookup driver evaluates each ACPI device's RSTL,
+RSNL, DLKL and CLKT objects during a single namespace walk at
+subsys_initcall time, resolving device references via
+bus_find_device_by_acpi_dev().
+
+Devices whose enumeration is deferred until a supplier driver calls
+acpi_dev_clear_dependencies() do not exist as platform devices during
+that walk, so their resource objects are silently skipped.  With SCMI
+ACPI support restored, clk-sky1-acpi probes and clears dependencies,
+and the audss clock controller (CIXH6061) only enumerates afterwards;
+its RSTL entry for the audio subsystem NOC reset is never registered
+and devm_reset_control_get(dev, "noc") fails with -ENOENT.
+
+Register a platform bus notifier that evaluates a device's resource
+objects as the device appears.  Entries are allocated against the
+resource-lookup device so they stay valid for as long as they may be
+used.  Devices present during the initial walk are unaffected, so no
+entries are registered twice.
+---
+ drivers/soc/cix/cix-acpi-resource-lookup.c | 37 ++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/drivers/soc/cix/cix-acpi-resource-lookup.c b/drivers/soc/cix/cix-acpi-resource-lookup.c
+index 0abe62febd50..dac6f08bce8c 100644
+--- a/drivers/soc/cix/cix-acpi-resource-lookup.c
++++ b/drivers/soc/cix/cix-acpi-resource-lookup.c
+@@ -357,12 +357,49 @@ static acpi_status acpi_bus_res_scan(acpi_handle handle, u32 level,
+ 	return AE_OK;
+ }
+ 
++/*
++ * Devices whose enumeration is deferred until a supplier driver calls
++ * acpi_dev_clear_dependencies() do not exist as platform devices when the
++ * namespace walk in acpi_resource_lookup_probe() runs, so their RSTL, RSNL,
++ * DLKL and CLKT objects are never evaluated.  Their consumers then fail
++ * resource lookups (e.g. the audss clock controller's "noc" reset returns
++ * -ENOENT).  Watch the platform bus and evaluate each device's objects as
++ * it appears.  Allocations are owned by the resource-lookup device so
++ * registered entries stay valid for as long as they may be used.
++ */
++static struct device *acpi_res_lookup_owner;
++
++static int acpi_res_lookup_late_add(struct notifier_block *nb,
++				    unsigned long action, void *data)
++{
++	struct device *dev = data;
++	struct acpi_device *adev;
++
++	if (action != BUS_NOTIFY_ADD_DEVICE || !dev || !acpi_res_lookup_owner)
++		return NOTIFY_DONE;
++
++	adev = ACPI_COMPANION(dev);
++	if (!adev || !adev->status.present)
++		return NOTIFY_DONE;
++
++	acpi_resource_lookup_device(adev->handle, acpi_res_lookup_owner);
++
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block acpi_res_lookup_bus_nb = {
++	.notifier_call = acpi_res_lookup_late_add,
++};
++
+ static int acpi_resource_lookup_probe(struct platform_device *pdev)
+ {
+ 	acpi_walk_namespace(ACPI_TYPE_ANY, ACPI_ROOT_OBJECT,
+ 			    ACPI_UINT32_MAX, acpi_bus_res_scan, NULL,
+ 			    &pdev->dev, NULL);
+ 
++	acpi_res_lookup_owner = &pdev->dev;
++	bus_register_notifier(&platform_bus_type, &acpi_res_lookup_bus_nb);
++
+ 	dev_info(&pdev->dev, "ACPI resource lookup complete\n");
+ 	return 0;
+ }
+-- 
+2.55.0
+
