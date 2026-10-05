@@ -1,0 +1,74 @@
+From e17bd888bc23e485ddd84928df0d63352f432108 Mon Sep 17 00:00:00 2001
+From: Jordan McCallum <apt-install-coffee@proton.me>
+Date: Mon, 5 Oct 2026 13:39:38 +1000
+Subject: [PATCH 149/149] reset: sky1: register ACPI lookups for audss NOC and
+ VPU resets
+
+The CIXA1019 resource-lookup walk only registers RSTL entries while
+both the provider and the consumer exist as platform devices.  On this
+platform the audss clock controller (CIXH6061) and the MVP VPU
+(CIXH3010) enumerate after the walk has run, so their reset lookups
+are never registered: the audss clock controller fails devm_reset_
+control_get(dev, "noc") and the VPU fails devm_reset_control_get(dev,
+"vpu_reset"), leaving the VPU driver without a device node.
+
+Register the well-known lookup entries in the SRC driver probe,
+mirroring the DT references (audss_clk: <&src SKY1_AUDIO_HIFI5_NOC_
+RESET_N> "noc"; vpu: <&src SKY1_VPU_RESET_N> "vpu_reset"), following
+the same pattern reset-sky1-audss.c uses for its consumers.  DT boot
+is unaffected; duplicate entries from a working RSTL path are
+harmless.
+---
+ drivers/reset/reset-sky1.c | 29 ++++++++++++++++++++++++++++-
+ 1 file changed, 28 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/reset/reset-sky1.c b/drivers/reset/reset-sky1.c
+index 0a2871372118..b07833e8e665 100644
+--- a/drivers/reset/reset-sky1.c
++++ b/drivers/reset/reset-sky1.c
+@@ -352,6 +352,7 @@ static int sky1_reset_probe(struct platform_device *pdev)
+ 		.reg_stride = 4,
+ 		.name = "src",
+ 	};
++	int ret;
+ 
+ 	sky1src = devm_kzalloc(dev, sizeof(*sky1src), GFP_KERNEL);
+ 	if (!sky1src)
+@@ -379,7 +380,33 @@ static int sky1_reset_probe(struct platform_device *pdev)
+ 	sky1src->rcdev.of_node   = dev->of_node;
+ 	sky1src->rcdev.dev       = dev;
+ 
+-	return devm_reset_controller_register(dev, &sky1src->rcdev);
++	ret = devm_reset_controller_register(dev, &sky1src->rcdev);
++	if (ret)
++		return ret;
++
++	/*
++	 * Under ACPI, consumers find reset lines via lookup table
++	 * (equivalent of DT phandle references).  The CIXA1019 namespace
++	 * walk only registers RSTL entries while both endpoints exist as
++	 * platform devices, which is not the case for the audss clock
++	 * controller and the MVP VPU on this platform, so register the
++	 * well-known lookups here, mirroring the DT references.
++	 */
++	if (has_acpi_companion(dev) && variant == &variant_sky1) {
++		static struct reset_control_lookup lookups[] = {
++			{ .index = SKY1_AUDIO_HIFI5_NOC_RESET_N,
++			  .dev_id = "CIXH6061:00", .con_id = "noc" },
++			{ .index = SKY1_VPU_RESET_N,
++			  .dev_id = "CIXH3010:00", .con_id = "vpu_reset" },
++		};
++		unsigned int i;
++
++		for (i = 0; i < ARRAY_SIZE(lookups); i++)
++			lookups[i].provider = dev_name(dev);
++		reset_controller_add_lookup(lookups, ARRAY_SIZE(lookups));
++	}
++
++	return 0;
+ }
+ 
+ static const struct of_device_id sky1_reset_dt_ids[] = {
+-- 
+2.55.0
+

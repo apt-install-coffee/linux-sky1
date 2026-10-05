@@ -146,3 +146,4 @@
 0146-firmware-arm_scmi-restore-ACPI-boot-support-for-CIX-.patch
 0147-soc-cix-register-ACPI-resource-lookups-for-late-enum.patch
 0148-clk-cix-sky1-audss-keep-runtime-PM-reference-on-prob.patch
+0149-reset-sky1-register-ACPI-lookups-for-audss-NOC-and-V.patch
