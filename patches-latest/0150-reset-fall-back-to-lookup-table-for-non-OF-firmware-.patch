@@ -1,0 +1,43 @@
+From 6c6af82dd4d9ac5781240fd1e93c4a0ffe230cfc Mon Sep 17 00:00:00 2001
+From: Jordan McCallum <apt-install-coffee@proton.me>
+Date: Tue, 6 Oct 2026 16:06:19 +1000
+Subject: [PATCH 150/150] reset: fall back to lookup table for non-OF firmware
+ nodes
+
+__reset_control_get() routes any device with a firmware node to
+__fwnode_reset_control_get(), which requires a "reset-names" property
+on the node.  ACPI devices have firmware nodes but describe reset
+consumption via the lookup table mechanism instead, so the fwnode path
+returns -ENOENT for them and the lookup table is never consulted.
+
+Restore the pre-fwnode dispatch semantics: only device-tree nodes use
+the fwnode path; other consumers resolve through the lookup table.
+This restores ACPI reset consumption for the Sky1 platform, where the
+vendor DSDT provides RSTL tables consumed by the CIXA1019
+resource-lookup driver.
+---
+ drivers/reset/core.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/reset/core.c b/drivers/reset/core.c
+index 8ecdf3bb5c19..b5ee23595872 100644
+--- a/drivers/reset/core.c
++++ b/drivers/reset/core.c
+@@ -1335,7 +1335,13 @@ struct reset_control *__reset_control_get(struct device *dev, const char *id,
+ 	if (WARN_ON(shared && acquired))
+ 		return ERR_PTR(-EINVAL);
+ 
+-	if (fwnode)
++	/*
++	 * Device-tree nodes describe resets via firmware properties; ACPI
++	 * and other non-OF firmware nodes have no equivalent, so their
++	 * consumers resolve through the lookup table registered by the
++	 * provider driver, as under the pre-fwnode API.
++	 */
++	if (fwnode && is_of_node(fwnode))
+ 		return __fwnode_reset_control_get(fwnode, id, index, flags);
+ 
+ 	return __reset_control_get_from_lookup(dev, id, flags);
+-- 
+2.55.0
+
