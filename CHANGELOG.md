@@ -2,6 +2,14 @@
 
 All notable changes to the Sky1 kernel patch set.
 
+## [Unreleased]
+
+### Fixed
+- media: cix: amvx: allocate the 512 KiB firmware print RAM from individual
+  order-0 pages instead of `dma_alloc_noncontiguous()`. On CIXH3010 (no IOMMU
+  group) the old path required a physically contiguous block and failed with
+  CMA/order-7 ENOMEM under memory fragmentation.
+
 ## [6.19.4-1] - 2026-02-27
 
 ### Changed

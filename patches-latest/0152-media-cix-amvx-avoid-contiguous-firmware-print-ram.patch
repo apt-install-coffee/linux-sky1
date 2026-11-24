@@ -1,0 +1,223 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jordan McCallum <apt-install-coffee@proton.me>
+Date: Mon, 23 Nov 2026 00:00:00 +1100
+Subject: [PATCH] media: cix: amvx: allocate firmware print RAM from individual pages
+
+The firmware print RAM is a 512 KiB per-session buffer mapped into the VPU
+MMU.  mvx_mmu_alloc_noncontiguous() uses dma_alloc_noncontiguous(), which
+only allocates page-by-page when the device is behind an IOMMU.
+
+CIXH3010 is not in an IOMMU group, so the DMA-direct path requests one
+physically contiguous block: CMA first, then order-7 buddy.  Under memory
+fragmentation that allocation fails with -ENOMEM (or -EINTR while CMA
+migration is interrupted), aborting the decoder session even though the
+VPU MMU is perfectly capable of mapping scattered pages.
+
+Allocate the buffer as individual order-0 pages, map it with
+dma_map_sgtable(), and vmap() the pages for CPU access.  The VPU MMU
+already consumes an arbitrary SG list through mvx_mmu_alloc_pages_sg().
+
+Sync the print buffer through the SG table instead of virt_to_phys(),
+which is invalid for a vmap address, and free the buffer if mapping it
+into the VPU MMU fails.
+
+---
+ drivers/media/platform/cix/if/mvx_firmware_v2.c |  19 ++--
+ drivers/media/platform/cix/if/mvx_mmu.c         | 115 +++++++++++++++++++++++++-----
+ 2 files changed, 106 insertions(+), 28 deletions(-)
+
+diff --git a/drivers/media/platform/cix/if/mvx_firmware_v2.c b/drivers/media/platform/cix/if/mvx_firmware_v2.c
+index c9cf4acb5751..f7b4de7fd257 100755
+--- a/drivers/media/platform/cix/if/mvx_firmware_v2.c
++++ b/drivers/media/platform/cix/if/mvx_firmware_v2.c
+@@ -3541,9 +3541,8 @@ static int handle_fw_ram_print_v2(struct mvx_fw *fw)
+     uint32_t rd_idx;
+     char *print_buf = NULL;
+ 
+-    dma_sync_single_for_cpu(fw->dev,
+-                virt_to_phys(rpt_area), sizeof(*rpt_area),
+-                DMA_FROM_DEVICE);
++    dma_sync_sg_for_cpu(fw->dev, fw->print_ram_sgt->sgl,
++                fw->print_ram_sgt->nents, DMA_BIDIRECTIONAL);
+ 
+     wr_cnt = rpt_area->wr_cnt;
+     rd_cnt = rpt_area->rd_cnt;
+@@ -3562,10 +3561,8 @@ static int handle_fw_ram_print_v2(struct mvx_fw *fw)
+         rpt_area->rd_cnt = rd_cnt;
+         /* Make sure rpt_area->rd_cnt is written before memory is flushed. */
+         wmb();
+-        dma_sync_single_for_device(
+-            fw->dev,
+-            virt_to_phys(&rpt_area->rd_cnt), sizeof(rpt_area->rd_cnt),
+-            DMA_TO_DEVICE);
++        dma_sync_sg_for_device(fw->dev, fw->print_ram_sgt->sgl,
++                       fw->print_ram_sgt->nents, DMA_BIDIRECTIONAL);
+ 
+         ret = 1;
+     }
+@@ -3667,6 +3664,14 @@ static int map_fw_print_ram(struct mvx_fw *fw,
+ 
+     ret = mvx_mmu_map_pages(fw->mmu, begin, fw->print_ram_pages,
+                     MVX_ATTR_SHARED_RW, MVX_ACCESS_READ_WRITE, NULL);
++    if (ret != 0) {
++        mvx_mmu_free_noncontiguous(fw->dev, fw->print_ram_pages,
++                       fw->print_ram_sgt, &vmap,
++                       MVE_FW_PRINT_RAM_SIZE);
++        fw->print_ram_pages = NULL;
++        fw->print_ram_sgt = NULL;
++        return ret;
++    }
+ 
+     *data = vmap;
+ 
+diff --git a/drivers/media/platform/cix/if/mvx_mmu.c b/drivers/media/platform/cix/if/mvx_mmu.c
+index 585f0b0fbb7c..aa384e7e3eaa 100755
+--- a/drivers/media/platform/cix/if/mvx_mmu.c
++++ b/drivers/media/platform/cix/if/mvx_mmu.c
+@@ -40,6 +40,7 @@
+ #include <linux/dma-mapping.h>
+ #include <linux/list.h>
+ #include <linux/sched.h>
++#include <linux/slab.h>
+ #include <linux/vmalloc.h>
+ #include "mvx_mmu.h"
+ #include "mvx_log_group.h"
+@@ -713,43 +714,115 @@ phys_addr_t mvx_mmu_alloc_contiguous_pages(struct device *dev, size_t npages, gf
+     return 0;
+ }
+ 
++static void mvx_mmu_free_sg_pages(struct device *dev, struct sg_table *sgt,
++                  void *vaddr, enum dma_data_direction dir)
++{
++    struct scatterlist *sg;
++    int i;
++
++    if (vaddr != NULL)
++        vunmap(vaddr);
++
++    if (sgt != NULL && sgt->sgl != NULL) {
++        if (sgt->nents != 0)
++            dma_unmap_sg(dev, sgt->sgl, sgt->nents, dir);
++
++        for_each_sg(sgt->sgl, sg, sgt->orig_nents, i)
++            if (sg_page(sg) != NULL)
++                __free_page(sg_page(sg));
++
++        sg_free_table(sgt);
++    }
++
++    kfree(sgt);
++}
++
+ void mvx_mmu_free_noncontiguous(struct device *dev,
+               struct mvx_mmu_pages *pages, struct sg_table *sgt, void **data, size_t size)
+ {
+-    dma_vunmap_noncontiguous(dev, *data);
+-    dma_free_noncontiguous(dev, size, sgt, DMA_FROM_DEVICE);
+-    vfree(pages);
++    (void)size;
++
++    mvx_mmu_free_sg_pages(dev, sgt, *data, DMA_BIDIRECTIONAL);
++    *data = NULL;
++
++    if (pages != NULL)
++        vfree(pages);
+ }
+ 
+ void* mvx_mmu_alloc_noncontiguous(struct device *dev,
+-              struct mvx_mmu_pages **pages, struct sg_table **sgt, size_t size, gfp_t gfp_mask)
++              struct mvx_mmu_pages **pages, struct sg_table **sgt_out, size_t size, gfp_t gfp_mask)
+ {
+-    void *data;
++    const unsigned int npages = DIV_ROUND_UP(size, PAGE_SIZE);
++    struct page **page_array;
++    struct scatterlist *sg;
++    struct sg_table *sgt;
+     struct mvx_mmu_pages *tmp_pages;
+-    struct sg_table *tmp_sgt;
++    void *vaddr = NULL;
++    unsigned int i;
++    int ret;
+ 
+-    tmp_sgt = dma_alloc_noncontiguous(dev,
+-              size, DMA_FROM_DEVICE, gfp_mask, DMA_ATTR_ALLOC_SINGLE_PAGES);
+-    if (tmp_sgt == NULL)
++    /*
++     * dma_alloc_noncontiguous() only allocates page-by-page when the
++     * device is behind an IOMMU.  The VPU is not in an IOMMU group, so
++     * the generic helper falls back to one physically contiguous chunk
++     * (CMA, then order-N buddy) and fails under fragmentation.  Allocate
++     * order-0 pages ourselves; the VPU MMU can map an arbitrary SG list.
++     */
++    page_array = kvcalloc(npages, sizeof(*page_array), GFP_KERNEL);
++    if (page_array == NULL)
+         return NULL;
+ 
+-    data = dma_vmap_noncontiguous(dev, size, tmp_sgt);
+-    if (data == NULL) {
+-        MVX_LOG_PRINT(&mvx_log_if, MVX_LOG_WARNING,
+-                  "Cannot map sg_table to DMA address space");
+-        goto free_sg_table;
++    for (i = 0; i < npages; i++) {
++        page_array[i] = alloc_page(gfp_mask);
++        if (page_array[i] == NULL)
++            goto free_pages;
+     }
+-    tmp_pages = mvx_mmu_alloc_pages_sg(dev,
+-              tmp_sgt, DIV_ROUND_UP(size, MVE_PAGE_SIZE));
++
++    sgt = kzalloc(sizeof(*sgt), GFP_KERNEL);
++    if (sgt == NULL)
++        goto free_pages;
++
++    ret = sg_alloc_table(sgt, npages, GFP_KERNEL);
++    if (ret != 0) {
++        kfree(sgt);
++        goto free_pages;
++    }
++
++    i = 0;
++    for_each_sg(sgt->sgl, sg, npages, i)
++        sg_set_page(sg, page_array[i],
++                min_t(size_t, PAGE_SIZE, size - i * PAGE_SIZE), 0);
++
++    ret = dma_map_sgtable(dev, sgt, DMA_BIDIRECTIONAL, 0);
++    if (ret != 0)
++        goto free_sgt;
++
++    vaddr = vmap(page_array, npages, VM_MAP, PAGE_KERNEL);
++    if (vaddr == NULL)
++        goto free_sgt;
++
++    kvfree(page_array);
++    page_array = NULL;
++
++    tmp_pages = mvx_mmu_alloc_pages_sg(dev, sgt,
++                       DIV_ROUND_UP(size, MVE_PAGE_SIZE));
+     if (IS_ERR(tmp_pages))
+-        goto free_sg_table;
++        goto free_sgt;
+ 
+     *pages = tmp_pages;
+-    *sgt = tmp_sgt;
+-    return data;
++    *sgt_out = sgt;
++    return vaddr;
++
++free_sgt:
++    mvx_mmu_free_sg_pages(dev, sgt, vaddr, DMA_BIDIRECTIONAL);
++    kvfree(page_array);
++    return NULL;
+ 
+-free_sg_table:
+-    dma_free_noncontiguous(dev, size, tmp_sgt, DMA_FROM_DEVICE);
++free_pages:
++    for (i = 0; i < npages; i++)
++        if (page_array[i] != NULL)
++            __free_page(page_array[i]);
++    kvfree(page_array);
+     return NULL;
+ }
+ 
+-- 
+2.51.0
